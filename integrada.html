@@ -3209,29 +3209,80 @@ window.sb = (() => {
     }, okLabel))));
   }
   window.ConfirmModal = ConfirmModal;
+
+  // Catálogo local: somente MPs, sem contas e sem persistir orçamentos.
+  const CATALOG_KEY = 'production_mp_catalog_v1';
+  const readCatalog = () => {
+    const raw = localStorage.getItem(CATALOG_KEY);
+    if (!raw) return [];
+    const items = JSON.parse(raw);
+    if (!Array.isArray(items)) throw new Error('Catálogo inválido');
+    return items;
+  };
+  const writeCatalog = items => localStorage.setItem(CATALOG_KEY, JSON.stringify(items));
   window.cloud = {
     async listMP() {
-      return window.sb.select('materias_primas', 'select=id,seq,nome,ncm,fornecedor,nf_valor,nf_kg,nf_icms,custo_kg,ultima_compra_em,updated_at&order=updated_at.desc&limit=500');
+      return readCatalog();
     },
-    async getMP(mpId) {
-      const arr = await window.sb.select('materias_primas', `id=eq.${mpId}&select=*`);
-      if (!arr || !arr.length) throw new Error('Matéria-prima não encontrada');
-      return arr[0];
+    async getMP(id) {
+      const mp = readCatalog().find(m => m.id === id);
+      if (!mp) throw new Error('MP não encontrada');
+      return mp;
     },
     async createMP(mp) {
-      // mp = { nome, ncm, fornecedor, cnpj_fornecedor, descricao_xml, notas, nf_*, custo_kg, nf_xml_info }
-      const payload = window.cloud._normalizarMP(mp);
-      const data = await window.sb.insert('materias_primas', payload);
-      return data && data[0];
+      const items = readCatalog(),
+        saved = {
+          ...this._normalizarMP(mp),
+          id: crypto.randomUUID(),
+          seq: Math.max(0, ...items.map(m => Number(m.seq) || 0)) + 1,
+          updated_at: new Date().toISOString()
+        };
+      writeCatalog([saved, ...items]);
+      return saved;
     },
-    async updateMP(mpId, patch) {
-      // patch pode ser parcial; aceita os mesmos campos de createMP
-      const normalizado = window.cloud._normalizarMP(patch, true);
-      const data = await window.sb.update('materias_primas', `id=eq.${mpId}`, normalizado);
-      return data && data[0];
+    async updateMP(id, patch) {
+      let saved;
+      const items = readCatalog().map(m => m.id === id ? saved = {
+        ...m,
+        ...this._normalizarMP(patch, true),
+        updated_at: new Date().toISOString()
+      } : m);
+      if (!saved) throw new Error('MP não encontrada');
+      writeCatalog(items);
+      return saved;
     },
-    async deleteMP(mpId) {
-      return window.sb.del('materias_primas', `id=eq.${mpId}`);
+    async deleteMP(id) {
+      writeCatalog(readCatalog().filter(m => m.id !== id));
+    },
+    exportMP() {
+      const blob = new Blob([JSON.stringify({
+          version: 1,
+          items: readCatalog()
+        }, null, 2)], {
+          type: 'application/json'
+        }),
+        url = URL.createObjectURL(blob),
+        a = document.createElement('a');
+      a.href = url;
+      a.download = 'Materias_Primas.json';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    },
+    async importMP(file) {
+      const data = JSON.parse(await file.text());
+      if (data.version !== 1 || !Array.isArray(data.items)) throw new Error('Arquivo de MPs inválido');
+      const incoming = data.items.map(m => {
+        if (!m.nome || !(Number(m.nf_kg) > 0) || !(Number(m.nf_valor) > 0)) throw new Error('MP inválida no arquivo');
+        return {
+          ...this._normalizarMP(m),
+          id: m.id || crypto.randomUUID(),
+          seq: Number(m.seq) || 0,
+          updated_at: new Date().toISOString()
+        };
+      });
+      const merged = new Map(readCatalog().map(m => [m.id, m]));
+      incoming.forEach(m => merged.set(m.id, m));
+      writeCatalog([...merged.values()]);
     },
     // Util: normaliza objeto de MP para payload Supabase
     _normalizarMP(mp, parcial = false) {
@@ -3313,7 +3364,9 @@ window.sb = (() => {
     askConfirm,
     setLoading,
     disabled,
-    onItemsChange
+    onItemsChange,
+    startNew = false,
+    onSaved
   }) {
     const [items, setItems] = useState([]);
     const [loaded, setLoaded] = useState(false);
@@ -3372,6 +3425,9 @@ window.sb = (() => {
         }
       });
     };
+    useEffect(() => {
+      if (startNew) novo();
+    }, [startNew]);
     const abrirParaEdicao = async mpId => {
       setLoading?.({
         text: 'Carregando…'
@@ -3449,15 +3505,18 @@ window.sb = (() => {
           custo_kg: custoKg,
           ultima_compra_em: new Date().toISOString()
         };
+        let savedMP;
         if (editing.modo === 'novo') {
           const saved = await window.cloud.createMP(payload);
+          savedMP = saved;
           onShowToast(`MP #${String(saved.seq).padStart(4, '0')} criada · custo R$ ${custoKg.toFixed(4)}/kg`, 'ok');
         } else {
-          await window.cloud.updateMP(d.id, payload);
+          savedMP = await window.cloud.updateMP(d.id, payload);
           onShowToast(`MP atualizada · novo custo R$ ${custoKg.toFixed(4)}/kg`, 'ok');
         }
         setEditing(null);
         await recarregar();
+        if (onSaved) onSaved(savedMP);
       } catch (e) {
         onShowToast('Falha: ' + e.message, 'err');
       } finally {
@@ -3561,6 +3620,36 @@ window.sb = (() => {
       });
     }
     return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+      className: "banner banner-info"
+    }, "MPs salvas neste navegador, sem login. Para levar ao celular ou computador, exporte e importe o cat\xE1logo. Or\xE7amentos n\xE3o s\xE3o salvos."), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        gap: 10,
+        marginBottom: 16
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      className: "btn",
+      onClick: () => window.cloud.exportMP()
+    }, "Exportar MPs"), /*#__PURE__*/React.createElement("label", {
+      className: "btn"
+    }, "Importar MPs", /*#__PURE__*/React.createElement("input", {
+      type: "file",
+      accept: ".json",
+      style: {
+        display: 'none'
+      },
+      onChange: async e => {
+        try {
+          if (e.target.files[0]) {
+            await window.cloud.importMP(e.target.files[0]);
+            await recarregar();
+          }
+        } catch (err) {
+          onShowToast(err.message, 'err');
+        }
+        e.target.value = '';
+      }
+    }))), /*#__PURE__*/React.createElement("div", {
       className: "hist-toolbar"
     }, /*#__PURE__*/React.createElement("h1", null, "Mat\xE9rias-primas"), /*#__PURE__*/React.createElement("div", {
       style: {
@@ -4078,7 +4167,35 @@ window.sb = (() => {
     }), " ", editing.modo === 'novo' ? 'Criar MP' : 'Atualizar compra')));
   }
   window.MateriasPrimasView = MateriasPrimasView;
-
+  window.applyMPToProduct = (produto, mp, params) => {
+    const N = x => Number(x) || 0;
+    return {
+      ...produto,
+      nf: {
+        valor: N(mp.nf_valor),
+        kg: N(mp.nf_kg),
+        icms: N(mp.nf_icms),
+        ipi: N(mp.nf_ipi),
+        simples: mp.nf_simples ? 'SIM' : 'NAO',
+        frete: N(mp.nf_frete),
+        seguro: N(mp.nf_seguro),
+        outras: N(mp.nf_outras),
+        desconto: N(mp.nf_desconto),
+        xmlInfo: mp.nf_xml_info,
+        materiaPrimaId: mp.id,
+        materiaPrimaSnapshot: {
+          id: mp.id,
+          seq: mp.seq,
+          nome: mp.nome,
+          ncm: mp.ncm,
+          fornecedor: mp.fornecedor,
+          custoKgCalculado: window.cloud.calcularCustoKgMP(mp, params),
+          ultimaCompraEm: mp.ultima_compra_em,
+          vinculadoEm: new Date().toISOString()
+        }
+      }
+    };
+  };
   // =====================================================================
   // MPSeletor — bloco que aparece na ProdutoView para vincular MP do catálogo
   // =====================================================================
@@ -4796,7 +4913,7 @@ window.sb = (() => {
       className: "nome"
     }, item.nome), /*#__PURE__*/React.createElement(window.NumInput, {
       "aria-label": item.nome + " (R$ por pedido)",
-      readOnly: item.productionIndex !== undefined,
+      readOnly: item.productionIndex !== undefined || item.nome === 'Energia elétrica' || item.nome === 'Depreciação de máquina',
       value: item.valor,
       onChange: n => setInsumo(idx, {
         valor: n
@@ -5557,7 +5674,7 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
       },
       insumos: p.insumos.map(i => ({
         ...i,
-        valor: i.productionIndex !== undefined ? r.costs[i.productionIndex] : i.valor
+        valor: i.nome === 'Energia elétrica' ? 40 : i.nome === 'Depreciação de máquina' ? 41 : i.productionIndex !== undefined ? r.costs[i.productionIndex] : i.valor
       }))
     };
   };
@@ -5586,7 +5703,7 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
     };
     p.insumos = p.insumos.map((i, index) => ({
       ...i,
-      valor: 0,
+      valor: index === 2 ? 40 : index === 3 ? 41 : 0,
       ...({
         0: {
           productionIndex: 0
@@ -5790,9 +5907,6 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
         qtd: 28000,
         valor: 0
       }));
-    useEffect(() => {
-      window.sb.ensureValidSession().then(s => setUser(s?.user || null));
-    }, []);
     const notify = (msg, kind) => {
         setToast({
           msg,
@@ -5890,30 +6004,15 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
     }, "+ Novo item"), /*#__PURE__*/React.createElement("button", {
       className: "nav-item " + (view === "catalog" ? "active" : ""),
       onClick: () => setView("catalog")
-    }, "Mat\xE9rias-primas salvas"), /*#__PURE__*/React.createElement("div", {
-      className: "module-note"
-    }, user ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", null, user.email), /*#__PURE__*/React.createElement("button", {
-      className: "btn btn-ghost",
-      onClick: async () => {
-        await window.sb.signOut();
-        setUser(null);
-        setProducts([freshProduct()]);
-        setActive(0);
-        setSale({
-          ...window.VENDA_PADRAO(),
-          valor: 0
-        });
-        setView("production");
-      }
-    }, "Sair da conta")) : /*#__PURE__*/React.createElement("button", {
-      className: "btn",
-      onClick: () => setLoginOpen(true)
-    }, "Entrar para sincronizar MPs")), /*#__PURE__*/React.createElement("button", {
+    }, "Mat\xE9rias-primas salvas"), /*#__PURE__*/React.createElement("button", {
+      className: "nav-item",
+      onClick: () => setView('newmp')
+    }, "+ Nova mat\xE9ria-prima"), /*#__PURE__*/React.createElement("button", {
       className: "nav-item",
       onClick: () => setView('params')
     }, "Par\xE2metros de margem"), /*#__PURE__*/React.createElement("p", {
       className: "module-note"
-    }, "Somente as MPs ficam salvas online. Or\xE7amentos e simula\xE7\xF5es s\xE3o descartados ao recarregar.")), /*#__PURE__*/React.createElement("div", {
+    }, "Somente as MPs ficam salvas neste navegador. Or\xE7amentos e simula\xE7\xF5es s\xE3o descartados ao recarregar.")), /*#__PURE__*/React.createElement("div", {
       className: "main-wrap"
     }, /*#__PURE__*/React.createElement("div", {
       className: "topbar"
@@ -5962,37 +6061,36 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
       onNext: () => {
         setView('margin');
       }
-    }), view === 'catalog' && (user ? /*#__PURE__*/React.createElement(window.MateriasPrimasView, {
-      key: user.id,
+    }), (view === 'catalog' || view === 'newmp') && /*#__PURE__*/React.createElement(window.MateriasPrimasView, {
+      key: view,
+      startNew: view === 'newmp',
       params: params,
       onShowToast: notify,
       askConfirm: askConfirm,
       setLoading: setLoading,
-      disabled: false
-    }) : /*#__PURE__*/React.createElement("div", {
-      className: "card card-body"
-    }, /*#__PURE__*/React.createElement("h1", null, "Suas mat\xE9rias-primas nos dois aparelhos"), /*#__PURE__*/React.createElement("p", null, "Entre com a mesma conta da calculadora original no computador e no celular para consultar e atualizar o mesmo cat\xE1logo. Somente este cadastro ser\xE1 gravado."), /*#__PURE__*/React.createElement("button", {
-      className: "btn btn-primary",
-      onClick: () => setLoginOpen(true)
-    }, "Entrar na conta do cat\xE1logo"))), view === 'params' && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
+      disabled: false,
+      onSaved: mp => {
+        setProduct(window.applyMPToProduct(product, mp, params));
+        setView('margin');
+        notify('MP salva e preenchida no item em análise.', 'ok');
+      }
+    }), view === 'params' && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
       className: "module-note"
     }, "Al\xEDquotas iniciais do arquivo recebido: conferir NCM, opera\xE7\xE3o e UF. IRPJ/CSLL s\xE3o provis\xF5es gerenciais; a apura\xE7\xE3o definitiva depende do resultado tribut\xE1vel do per\xEDodo."), /*#__PURE__*/React.createElement(window.ParamsView, {
       params: params,
       setParams: setParams
     })), (view === 'margin' || view === 'sale') && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
       className: "module-note"
-    }, "Base \xFAnica: ", window.intFmt(product.prod.qtd), " unidades por pedido. Impress\xE3o, corte, liner e cola v\xEAm da Produ\xE7\xE3o uma \xFAnica vez. Energia, deprecia\xE7\xE3o e outros insumos devem ser informados para este pedido."), view === 'margin' ? /*#__PURE__*/React.createElement(React.Fragment, null, user ? /*#__PURE__*/React.createElement(window.MPSeletor, {
+    }, "Base \xFAnica: ", window.intFmt(product.prod.qtd), " unidades por pedido. Impress\xE3o, corte, liner e cola v\xEAm da Produ\xE7\xE3o uma \xFAnica vez. Energia, deprecia\xE7\xE3o e outros insumos devem ser informados para este pedido."), view === 'margin' ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(window.MPSeletor, {
       params: params,
-      key: product.id + user.id,
+      key: product.id + product.nf.materiaPrimaId,
       produto: product,
       setProduto: setProduct,
       onShowToast: notify
-    }) : /*#__PURE__*/React.createElement("div", {
-      className: "banner banner-info"
-    }, "Para preencher este item com uma MP j\xE1 salva, ", /*#__PURE__*/React.createElement("button", {
+    }), /*#__PURE__*/React.createElement("button", {
       className: "btn",
-      onClick: () => setLoginOpen(true)
-    }, "entre na conta do cat\xE1logo")), /*#__PURE__*/React.createElement(window.CreditOptions, {
+      onClick: () => setView('newmp')
+    }, "+ Criar nova mat\xE9ria-prima e preencher este item"), /*#__PURE__*/React.createElement(window.CreditOptions, {
       nf: product.nf,
       onChange: nf => setProduct({
         ...product,
