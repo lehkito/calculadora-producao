@@ -6005,7 +6005,12 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
         });
         setView('production');
       }
-    }, "+ Novo item"), /*#__PURE__*/React.createElement("button", {
+    }, "+ Novo item"), /*#__PURE__*/React.createElement("div", {
+      className: "nav-section"
+    }, "Cadastro de materiais"), /*#__PURE__*/React.createElement("button", {
+      className: "nav-item " + (view === 'catalog' ? 'active' : ''),
+      onClick: () => setView('catalog')
+    }, "Mat\xE9rias-primas cadastradas"), /*#__PURE__*/React.createElement("button", {
       className: "nav-item " + (view === 'newmp' ? 'active' : ''),
       onClick: () => setView('newmp')
     }, "+ Nova mat\xE9ria-prima"), /*#__PURE__*/React.createElement("button", {
@@ -6019,7 +6024,7 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
       className: "topbar"
     }, /*#__PURE__*/React.createElement("span", {
       className: "topbar-name"
-    }, view === 'production' ? 'Produção' : view === 'margin' ? 'Material e Margem' : view === 'sale' ? 'Venda e Margem' : view === 'newmp' ? 'Nova matéria-prima' : 'Parâmetros'), /*#__PURE__*/React.createElement("button", {
+    }, view === 'production' ? 'Produção' : view === 'margin' ? 'Material e Margem' : view === 'sale' ? 'Venda e Margem' : view === 'newmp' ? 'Nova matéria-prima' : view === 'catalog' ? 'Matérias-primas cadastradas' : 'Parâmetros'), /*#__PURE__*/React.createElement("button", {
       className: "btn btn-ghost",
       onClick: () => {
         const blob = new Blob(['<!doctype html>' + document.documentElement.outerHTML], {
