@@ -3361,7 +3361,13 @@ window.sb = (() => {
           nf_seguro: 0,
           nf_outras: 0,
           nf_desconto: 0,
-          nf_xml_info: null,
+          nf_xml_info: {
+            catalogFiscal: {
+              pcEligible: true,
+              icmsEligible: true,
+              ipiRecoverable: false
+            }
+          },
           notas: ''
         }
       });
@@ -3419,6 +3425,25 @@ window.sb = (() => {
       try {
         const custoKg = window.cloud.calcularCustoKgMP(d, params);
         const manual = d.nf_xml_info?.costSource === 'manual';
+        const breakdown = window.calcProduto({
+          nf: {
+            valor: d.nf_valor,
+            kg: d.nf_kg,
+            icms: d.nf_icms,
+            ipi: d.nf_ipi,
+            simples: d.nf_simples ? 'SIM' : 'NAO',
+            frete: d.nf_frete,
+            seguro: d.nf_seguro,
+            outras: d.nf_outras,
+            desconto: d.nf_desconto,
+            xmlInfo: d.nf_xml_info
+          },
+          prod: {
+            mpKg: 0,
+            qtd: 1
+          },
+          insumos: []
+        }, params).nf;
         const payload = {
           ...d,
           custo_kg: custoKg,
@@ -3745,6 +3770,25 @@ window.sb = (() => {
     // Recalcula custo/kg em tempo real
     const custoKg = window.cloud.calcularCustoKgMP(d, params);
     const manual = d.nf_xml_info?.costSource === 'manual';
+    const breakdown = window.calcProduto({
+      nf: {
+        valor: d.nf_valor,
+        kg: d.nf_kg,
+        icms: d.nf_icms,
+        ipi: d.nf_ipi,
+        simples: d.nf_simples ? 'SIM' : 'NAO',
+        frete: d.nf_frete,
+        seguro: d.nf_seguro,
+        outras: d.nf_outras,
+        desconto: d.nf_desconto,
+        xmlInfo: d.nf_xml_info
+      },
+      prod: {
+        mpKg: 0,
+        qtd: 1
+      },
+      insumos: []
+    }, params).nf;
     return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
       className: "hist-toolbar"
     }, /*#__PURE__*/React.createElement("h1", null, editing.modo === 'novo' ? 'Nova matéria-prima' : `Editando "${d.nome}"`), /*#__PURE__*/React.createElement("div", {
@@ -3850,7 +3894,13 @@ window.sb = (() => {
         nf_desconto: 0,
         nf_xml_info: e.target.value === 'manual' ? {
           costSource: 'manual'
-        } : null
+        } : {
+          catalogFiscal: {
+            pcEligible: true,
+            icmsEligible: true,
+            ipiRecoverable: false
+          }
+        }
       })
     }, /*#__PURE__*/React.createElement("option", {
       value: "nf"
@@ -4005,6 +4055,15 @@ window.sb = (() => {
         nf_xml_info: nf.xmlInfo
       })
     }), /*#__PURE__*/React.createElement("div", {
+      className: "card card-body"
+    }, /*#__PURE__*/React.createElement("h2", null, "Composi\xE7\xE3o do custo da mat\xE9ria-prima"), /*#__PURE__*/React.createElement("p", {
+      className: "module-note"
+    }, "Valor total informado inclui IPI e despesas. Os cr\xE9ditos abaixo seguem as op\xE7\xF5es confirmadas para esta compra. No modelo inicial: ICMS e PIS/COFINS ativados; IPI permanece no custo."), [['Valor total da compra', Number(d.nf_valor) || 0], ['(−) Crédito de ICMS', -breakdown.credICMS], ['(−) Crédito de PIS', -breakdown.credPIS], ['(−) Crédito de COFINS', -breakdown.credCOFINS], ['(−) IPI recuperável', -breakdown.credIPI], ['Custo líquido total', breakdown.custoLiq]].map(([label, value]) => /*#__PURE__*/React.createElement("div", {
+      className: "production-row",
+      key: label
+    }, /*#__PURE__*/React.createElement("span", null, label), /*#__PURE__*/React.createElement("strong", null, brl(value, 4)))), /*#__PURE__*/React.createElement("div", {
+      className: "production-row"
+    }, /*#__PURE__*/React.createElement("strong", null, "Custo l\xEDquido por kg"), /*#__PURE__*/React.createElement("strong", null, brl(custoKg, 4), "/kg"))), /*#__PURE__*/React.createElement("div", {
       className: "save-bar"
     }, /*#__PURE__*/React.createElement("span", {
       className: "hint"
