@@ -1778,7 +1778,9 @@ window.intFmt = (v) => Math.round(parseFloat(v)||0).toLocaleString('pt-BR');
 window.calcProduto = (produto, params) => {
   if (!produto) return null;
   const N = (x) => { const n = parseFloat(x); return isNaN(n) ? 0 : n; }; // coerção segura
-  const nf = produto.nf;
+  const sourceNF = produto.nf;
+  const manualMP = sourceNF.xmlInfo?.costSource === 'manual';
+  const nf = manualMP ? {...sourceNF,icms:0,ipi:0,frete:0,seguro:0,outras:0,desconto:0,xmlInfo:{...sourceNF.xmlInfo,catalogFiscal:{pcEligible:false,icmsEligible:false,ipiRecoverable:false}}} : sourceNF;
   const credits=window.mpFiscal(nf);
   const aliqIcmsNF = N(nf.icms) / 100;
   const aliqIpiNF = N(nf.ipi) / 100;
@@ -2825,11 +2827,18 @@ window.sb = (() => {
   window.XmlSelectModal = XmlSelectModal;
 })();
 (() => {
-  window.mpFiscal = nf => nf?.xmlInfo?.catalogFiscal || {};
+  window.mpFiscal = nf => nf?.xmlInfo?.costSource === 'manual' ? {
+    pcEligible: false,
+    icmsEligible: false,
+    ipiRecoverable: false
+  } : nf?.xmlInfo?.catalogFiscal || {};
   function CreditOptions({
     nf,
     onChange
   }) {
+    if (nf.xmlInfo?.costSource === 'manual') return /*#__PURE__*/React.createElement("div", {
+      className: "banner banner-info"
+    }, "MP sem NF: custo informado, sem cr\xE9ditos tribut\xE1rios nesta simula\xE7\xE3o.");
     const f = window.mpFiscal(nf),
       set = patch => onChange({
         ...nf,
@@ -3396,6 +3405,10 @@ window.sb = (() => {
         onShowToast('Informe o nome da matéria-prima', 'err');
         return;
       }
+      if (!(Number(d.nf_valor) > 0) || !Number.isFinite(Number(d.nf_valor))) {
+        onShowToast('Informe um custo total válido maior que zero', 'err');
+        return;
+      }
       if (!d.nf_kg || d.nf_kg <= 0) {
         onShowToast('Informe a quantidade em kg', 'err');
         return;
@@ -3405,6 +3418,7 @@ window.sb = (() => {
       });
       try {
         const custoKg = window.cloud.calcularCustoKgMP(d, params);
+        const manual = d.nf_xml_info?.costSource === 'manual';
         const payload = {
           ...d,
           custo_kg: custoKg,
@@ -3730,6 +3744,7 @@ window.sb = (() => {
 
     // Recalcula custo/kg em tempo real
     const custoKg = window.cloud.calcularCustoKgMP(d, params);
+    const manual = d.nf_xml_info?.costSource === 'manual';
     return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
       className: "hist-toolbar"
     }, /*#__PURE__*/React.createElement("h1", null, editing.modo === 'novo' ? 'Nova matéria-prima' : `Editando "${d.nome}"`), /*#__PURE__*/React.createElement("div", {
@@ -3817,6 +3832,47 @@ window.sb = (() => {
       }),
       placeholder: "anota\xE7\xF5es livres"
     }))))), /*#__PURE__*/React.createElement("div", {
+      className: "card card-body"
+    }, /*#__PURE__*/React.createElement("label", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "field-label"
+    }, "Origem do custo"), /*#__PURE__*/React.createElement("select", {
+      value: manual ? 'manual' : 'nf',
+      onChange: e => setD({
+        nf_valor: 0,
+        nf_kg: 0,
+        nf_icms: 0,
+        nf_ipi: 0,
+        nf_frete: 0,
+        nf_seguro: 0,
+        nf_outras: 0,
+        nf_desconto: 0,
+        nf_xml_info: e.target.value === 'manual' ? {
+          costSource: 'manual'
+        } : null
+      })
+    }, /*#__PURE__*/React.createElement("option", {
+      value: "nf"
+    }, "NF de entrada"), /*#__PURE__*/React.createElement("option", {
+      value: "manual"
+    }, "Custo informado \xB7 sem NF")))), manual ? /*#__PURE__*/React.createElement("div", {
+      className: "card card-body"
+    }, /*#__PURE__*/React.createElement("h2", null, "Custo da MP sem NF"), /*#__PURE__*/React.createElement("p", null, "Informe o custo total j\xE1 com frete e demais despesas, e o peso correspondente. Para custo por kg, informe 1 kg. Sem cr\xE9ditos tribut\xE1rios."), /*#__PURE__*/React.createElement("label", {
+      className: "field"
+    }, "Custo total (R$)", /*#__PURE__*/React.createElement(window.NumInput, {
+      value: d.nf_valor,
+      onChange: nf_valor => setD({
+        nf_valor
+      })
+    })), /*#__PURE__*/React.createElement("label", {
+      className: "field"
+    }, "Peso correspondente (kg)", /*#__PURE__*/React.createElement(window.NumInput, {
+      value: d.nf_kg,
+      onChange: nf_kg => setD({
+        nf_kg
+      })
+    })), /*#__PURE__*/React.createElement("strong", null, brl(custoKg, 4), "/kg")) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
       className: "card"
     }, /*#__PURE__*/React.createElement("div", {
       className: "card-head"
@@ -3940,7 +3996,7 @@ window.sb = (() => {
       className: "field-label"
     }, "Custo bruto (sem cr\xE9ditos)"), /*#__PURE__*/React.createElement("div", {
       className: "computed"
-    }, brl(d.nf_kg > 0 ? d.nf_valor / d.nf_kg : 0, 4)))))), /*#__PURE__*/React.createElement(window.CreditOptions, {
+    }, brl(d.nf_kg > 0 ? d.nf_valor / d.nf_kg : 0, 4))))))), /*#__PURE__*/React.createElement(window.CreditOptions, {
       nf: {
         simples: d.nf_simples ? 'SIM' : 'NAO',
         xmlInfo: d.nf_xml_info
@@ -3970,7 +4026,8 @@ window.sb = (() => {
   function MPSeletor({
     produto,
     setProduto,
-    onShowToast
+    onShowToast,
+    params
   }) {
     const [mps, setMps] = useState([]);
     const [carregando, setCarregando] = useState(false);
@@ -4239,6 +4296,7 @@ window.sb = (() => {
   }) {
     if (!produto) return null;
     const c = window.calcProduto(produto, params);
+    const manual = produto.nf.xmlInfo?.costSource === 'manual';
 
     // Estado do XML
     const [xmlText, setXmlText] = useState('');
@@ -4371,6 +4429,51 @@ window.sb = (() => {
     }, intFmt(produto.prod.qtd), " un / pedido"), /*#__PURE__*/React.createElement("span", {
       className: "pill"
     }, produto.nf.kg, " kg / nota")), /*#__PURE__*/React.createElement("div", {
+      className: "card card-body"
+    }, /*#__PURE__*/React.createElement("label", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "field-label"
+    }, "Origem do custo da mat\xE9ria-prima"), /*#__PURE__*/React.createElement("select", {
+      value: manual ? 'manual' : 'nf',
+      onChange: e => setProduto({
+        ...produto,
+        nf: {
+          valor: 0,
+          kg: 0,
+          icms: 0,
+          ipi: 0,
+          simples: 'NAO',
+          frete: 0,
+          seguro: 0,
+          outras: 0,
+          desconto: 0,
+          xmlInfo: e.target.value === 'manual' ? {
+            costSource: 'manual'
+          } : null
+        }
+      })
+    }, /*#__PURE__*/React.createElement("option", {
+      value: "nf"
+    }, "NF de entrada / XML"), /*#__PURE__*/React.createElement("option", {
+      value: "manual"
+    }, "Custo informado \xB7 sem NF")))), manual ? /*#__PURE__*/React.createElement("div", {
+      className: "card card-body"
+    }, /*#__PURE__*/React.createElement("h2", null, "MP sem NF de entrada"), /*#__PURE__*/React.createElement("p", null, "Custo total com despesas inclu\xEDdas. Se tiver apenas o pre\xE7o por kg, informe esse pre\xE7o e 1 kg. Sem cr\xE9ditos tribut\xE1rios."), /*#__PURE__*/React.createElement("label", {
+      className: "field"
+    }, "Custo total (R$)", /*#__PURE__*/React.createElement(window.NumInput, {
+      value: produto.nf.valor,
+      onChange: valor => setNF({
+        valor
+      })
+    })), /*#__PURE__*/React.createElement("label", {
+      className: "field"
+    }, "Peso correspondente (kg)", /*#__PURE__*/React.createElement(window.NumInput, {
+      value: produto.nf.kg,
+      onChange: kg => setNF({
+        kg
+      })
+    })), /*#__PURE__*/React.createElement("strong", null, brl(c.nf.custoKg, 4), "/kg")) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
       className: "card"
     }, /*#__PURE__*/React.createElement("div", {
       className: "card-head"
@@ -4603,7 +4706,7 @@ window.sb = (() => {
       className: "field-label"
     }, "Custo MP por kg"), /*#__PURE__*/React.createElement("div", {
       className: "computed accent"
-    }, brl(c.nf.custoKg, 4)))))), /*#__PURE__*/React.createElement("div", {
+    }, brl(c.nf.custoKg, 4))))))), /*#__PURE__*/React.createElement("div", {
       className: "card"
     }, /*#__PURE__*/React.createElement("div", {
       className: "card-head"
@@ -5820,6 +5923,7 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
     })), (view === 'margin' || view === 'sale') && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
       className: "module-note"
     }, "Base \xFAnica: ", window.intFmt(product.prod.qtd), " unidades por pedido. Impress\xE3o, corte, liner e cola v\xEAm da Produ\xE7\xE3o uma \xFAnica vez. Energia, deprecia\xE7\xE3o e outros insumos devem ser informados para este pedido."), view === 'margin' ? /*#__PURE__*/React.createElement(React.Fragment, null, user ? /*#__PURE__*/React.createElement(window.MPSeletor, {
+      params: params,
       key: product.id + user.id,
       produto: product,
       setProduto: setProduct,
