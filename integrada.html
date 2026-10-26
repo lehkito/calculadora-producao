@@ -1779,6 +1779,7 @@ window.calcProduto = (produto, params) => {
   if (!produto) return null;
   const N = (x) => { const n = parseFloat(x); return isNaN(n) ? 0 : n; }; // coerção segura
   const nf = produto.nf;
+  const credits=window.mpFiscal(nf);
   const aliqIcmsNF = N(nf.icms) / 100;
   const aliqIpiNF = N(nf.ipi) / 100;
   const aliqPIS = N(params.pis) / 100;
@@ -1795,10 +1796,12 @@ window.calcProduto = (produto, params) => {
   const valorProd = (nfValor - despesasAcessorias) / (1 + aliqIpiNF);
   const valorIPI = (nfValor - despesasAcessorias) - valorProd;
   const icmsDestac = valorProd * aliqIcmsNF;
-  const basePC = (valorProd - icmsDestac) + despesasAcessorias;
-  const credPIS = nf.simples === 'SIM' ? 0 : basePC * aliqPIS;
-  const credCOFINS = nf.simples === 'SIM' ? 0 : basePC * aliqCOFINS;
-  const credTotal = icmsDestac + credPIS + credCOFINS;
+  const basePC = Math.max(0, nf.simples==='SIM'&&credits.pcBase!=null ? N(credits.pcBase) : (valorProd - icmsDestac) + despesasAcessorias);
+  const credPIS = credits.pcEligible === true ? basePC * aliqPIS : 0;
+  const credCOFINS = credits.pcEligible === true ? basePC * aliqCOFINS : 0;
+  const credICMS = credits.icmsEligible === true ? icmsDestac : 0;
+  const credIPI = credits.ipiRecoverable === true ? valorIPI : 0;
+  const credTotal = credICMS + credIPI + credPIS + credCOFINS;
   const custoLiq = nfValor - credTotal;
   const custoKg = nfKg > 0 ? custoLiq / nfKg : 0;
 
@@ -1822,7 +1825,7 @@ window.calcProduto = (produto, params) => {
 
   return {
     nf: { valorProd, valorIPI, icmsDestac, basePC, credPIS, credCOFINS,
-          credTotal, custoLiq, custoKg, despesasAcessorias,
+          credTotal, credICMS, credIPI, custoLiq, custoKg, despesasAcessorias,
           frete, seguro, outras, desconto },
     insumos: { subtotal, credPISDiretos, credCOFINSDiretos, credICMSDiretos, credTotalDiretos },
     cmv: { mpDia, custoTotalDia, cmvUn },
@@ -1844,8 +1847,9 @@ window.calcVenda = (venda, produto, params) => {
   const uf = window.UFS.find(u => u[0] === venda.uf) || window.UFS[25];
   const isIntra = venda.uf === 'SP';
   const tipo = isIntra ? 'Interna' : 'Interestadual';
-  const aliqICMS = isIntra ? N(params.icmsSp) / 100 : uf[1];
-  const aliqInterna = uf[2];
+  const fiscal = venda.fiscal || {};
+  const aliqICMS = fiscal.icms != null ? N(fiscal.icms)/100 : isIntra ? N(params.icmsSp) / 100 : uf[1];
+  const aliqInterna = fiscal.internal != null ? N(fiscal.internal)/100 : uf[2];
   const isNaoContrib = venda.contrib === 'NAO';
   const difalAplicavel = !isIntra && isNaoContrib;
   const aliqIPI = venda.ipi === 'SIM' ? N(params.ipi) / 100 : 0;
@@ -1855,17 +1859,16 @@ window.calcVenda = (venda, produto, params) => {
   const comissaoPct = N(venda.comissao);
   const ipi = aliqIPI > 0 ? valorNota - valorNota / (1 + aliqIPI) : 0;
   const receitaBruta = valorNota - ipi;
-  const baseICMS = isNaoContrib ? valorNota : receitaBruta;
+  const baseICMS = isNaoContrib || fiscal.purpose==='final' ? valorNota : receitaBruta;
   const icmsDeb = baseICMS * aliqICMS;
-  const basePisCofins = receitaBruta - icmsDeb;
+  const baseDifal = baseICMS;
+  const difal = difalAplicavel ? baseDifal * Math.max(0,aliqInterna-aliqICMS) : 0;
+  const fcp = Math.max(0,N(fiscal.fcp));
+  const basePisCofins = fiscal.useBasePc ? Math.max(0,N(fiscal.basePc)) : Math.max(0,receitaBruta-icmsDeb-difal);
   const pisV = basePisCofins * aliqPIS;
   const cofinsV = basePisCofins * aliqCOFINS;
-  const baseDifal = isNaoContrib ? valorNota : receitaBruta;
-  const difal = difalAplicavel
-    ? (baseDifal / (1 - aliqInterna)) * (aliqInterna - aliqICMS)
-    : 0;
 
-  const receitaLiq = receitaBruta - icmsDeb - pisV - cofinsV - difal;
+  const receitaLiq = receitaBruta - icmsDeb - pisV - cofinsV - difal - fcp;
   const cmvTotal = qtd * cmvUn;
   const lucroBruto = receitaLiq - cmvTotal;
   const comissao = venda.mkt === 'SIM' ? receitaBruta * (comissaoPct / 100) : 0;
@@ -1875,7 +1878,7 @@ window.calcVenda = (venda, produto, params) => {
   const csll = Math.max(lucroAntesIR, 0) * aliqCSLL;
   const lucroLiq = lucroAntesIR - irpj - csll;
 
-  const tributos = icmsDeb + pisV + cofinsV + difal + irpj + csll;
+  const tributos = icmsDeb + pisV + cofinsV + difal + fcp + irpj + csll;
   const margemBruta = receitaBruta > 0 ? lucroBruto / receitaBruta : 0;
   const margemLiq = receitaBruta > 0 ? lucroLiq / receitaBruta : 0;
   const cargaTrib = receitaBruta > 0 ? tributos / receitaBruta : 0;
@@ -1886,7 +1889,7 @@ window.calcVenda = (venda, produto, params) => {
     cmvUn, tipo, aliqICMS, aliqInterna, difalAplicavel, aliqIPI, precoUn,
     baseICMS, basePisCofins, baseDifal, isNaoContrib,
     aplicarFixos,
-    dre: { valorNota, ipi, receitaBruta, icmsDeb, pis: pisV, cofins: cofinsV, difal,
+    dre: { valorNota, ipi, receitaBruta, icmsDeb, pis: pisV, cofins: cofinsV, difal, fcp,
            receitaLiq, cmvTotal, lucroBruto, comissao, custosFixos,
            lucroAntesIR, irpj, csll, lucroLiq },
     kpi: { tributos, margemBruta, margemLiq, cargaTrib, markup },
@@ -2227,6 +2230,150 @@ window.aplicarXmlAoProduto = function aplicarXmlAoProduto(produto, selecao, pars
     kgPreenchido,
   };
 };
+})();
+(()=>{// =====================================================================
+// CLIENTE SUPABASE — mínimo, sem SDK (acesso via REST/Auth direto)
+// Acesso restrito ao catálogo autenticado
+// =====================================================================
+
+window.SUPABASE_CONFIG = {
+  url:     'https://yxjrgyrtmhlqlpmpgifk.supabase.co',
+  anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl4anJneXJ0bWhscWxwbXBnaWZrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk1NzcyMTksImV4cCI6MjA5NTE1MzIxOX0.YlWH6U1518JXjWLIBPnK7nPVl0W0rYn0FRf85HYXAkA',
+};
+
+window.SUPABASE_CONFIGURED =
+  !window.SUPABASE_CONFIG.url.startsWith('__') &&
+  !window.SUPABASE_CONFIG.anonKey.startsWith('__');
+
+window.sb = (() => {
+  const AUTH_KEY = 'mp_catalog_session_v1';
+
+  function getSession() {
+    try {
+      const raw = localStorage.getItem(AUTH_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  }
+  function setSession(s) {
+    if (s) localStorage.setItem(AUTH_KEY, JSON.stringify(s));
+    else localStorage.removeItem(AUTH_KEY);
+  }
+  function isExpired(session) {
+    if (!session || !session.expires_at) return true;
+    return Date.now() >= (session.expires_at * 1000 - 60_000);
+  }
+  function getUser() {
+    const s = getSession();
+    return s && s.user ? s.user : null;
+  }
+
+  async function call(path, opts = {}) {
+    if (!window.SUPABASE_CONFIGURED) {
+      throw new Error('Supabase não configurado. Edite SUPABASE_CONFIG em lib/supabase.js.');
+    }
+    const headers = {
+      'apikey': window.SUPABASE_CONFIG.anonKey,
+      'Content-Type': 'application/json',
+      ...(opts.headers || {}),
+    };
+    const session = getSession();
+    if (session && session.access_token) {
+      headers['Authorization'] = `Bearer ${session.access_token}`;
+    }
+    const res = await fetch(window.SUPABASE_CONFIG.url + path, { ...opts, headers });
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+    if (!res.ok) {
+      const msg = (data && (data.error_description || data.msg || data.message || data.error)) ||
+                  `HTTP ${res.status}`;
+      const err = new Error(msg);
+      err.status = res.status;
+      err.data = data;
+      throw err;
+    }
+    return data;
+  }
+
+  async function signIn(email, password) {
+    const data = await call('/auth/v1/token?grant_type=password', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+    setSession(data);
+    return data;
+  }
+  async function refresh() {
+    const session = getSession();
+    if (!session || !session.refresh_token) throw new Error('Sem refresh_token');
+    const data = await call('/auth/v1/token?grant_type=refresh_token', {
+      method: 'POST',
+      body: JSON.stringify({ refresh_token: session.refresh_token }),
+    });
+    setSession(data);
+    return data;
+  }
+  async function ensureValidSession() {
+    const session = getSession();
+    if (!session) return null;
+    if (isExpired(session)) {
+      try { await refresh(); return getSession(); }
+      catch { setSession(null); return null; }
+    }
+    return session;
+  }
+  async function signOut() {
+    const session = getSession();
+    if (session && session.access_token) {
+      try { await call('/auth/v1/logout', { method: 'POST' }); } catch { /* ignora */ }
+    }
+    setSession(null);
+  }
+
+  async function select(table, query = '', opts = {}) {
+    if (table !== 'materias_primas') throw new Error('Somente o catálogo de MPs pode ser salvo.');
+    if (!await ensureValidSession()) throw new Error('Entre na sua conta para acessar as MPs.');
+    await ensureValidSession();
+    const profile = opts.schema || atob('YWdlbmZsZXg=');
+    const url = `/rest/v1/${table}${query ? '?' + query : ''}`;
+    return call(url, { method: 'GET', headers: { 'Accept-Profile': profile } });
+  }
+  async function insert(table, payload, opts = {}) {
+    if (table !== 'materias_primas') throw new Error('Somente o catálogo de MPs pode ser salvo.');
+    if (!await ensureValidSession()) throw new Error('Entre na sua conta para acessar as MPs.');
+    await ensureValidSession();
+    const profile = opts.schema || atob('YWdlbmZsZXg=');
+    return call(`/rest/v1/${table}`, {
+      method: 'POST',
+      headers: { 'Content-Profile': profile, 'Prefer': 'return=representation' },
+      body: JSON.stringify(Array.isArray(payload) ? payload : [payload]),
+    });
+  }
+  async function del(table, query, opts = {}) {
+    if (table !== 'materias_primas') throw new Error('Somente o catálogo de MPs pode ser salvo.');
+    if (!await ensureValidSession()) throw new Error('Entre na sua conta para acessar as MPs.');
+    await ensureValidSession();
+    const profile = opts.schema || atob('YWdlbmZsZXg=');
+    return call(`/rest/v1/${table}?${query}`, {
+      method: 'DELETE',
+      headers: { 'Content-Profile': profile, 'Prefer': 'return=representation' },
+    });
+  }
+  async function update(table, query, patch, opts = {}) {
+    if (table !== 'materias_primas') throw new Error('Somente o catálogo de MPs pode ser salvo.');
+    if (!await ensureValidSession()) throw new Error('Entre na sua conta para acessar as MPs.');
+    await ensureValidSession();
+    const profile = opts.schema || atob('YWdlbmZsZXg=');
+    return call(`/rest/v1/${table}?${query}`, {
+      method: 'PATCH',
+      headers: { 'Content-Profile': profile, 'Prefer': 'return=representation' },
+      body: JSON.stringify(patch),
+    });
+  }
+
+  return { signIn, signOut, refresh, ensureValidSession, getSession, getUser,
+           select, insert, update, del, isExpired };
+})();
 })();function _extends() { return _extends = Object.assign ? Object.assign.bind() : function (n) { for (var e = 1; e < arguments.length; e++) { var t = arguments[e]; for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]); } return n; }, _extends.apply(null, arguments); }
 (() => {
   /* global React */
@@ -2678,6 +2825,1398 @@ window.aplicarXmlAoProduto = function aplicarXmlAoProduto(produto, selecao, pars
   window.XmlSelectModal = XmlSelectModal;
 })();
 (() => {
+  window.mpFiscal = nf => nf?.xmlInfo?.catalogFiscal || {};
+  function CreditOptions({
+    nf,
+    onChange
+  }) {
+    const f = window.mpFiscal(nf),
+      set = patch => onChange({
+        ...nf,
+        xmlInfo: {
+          ...(nf.xmlInfo || {}),
+          catalogFiscal: {
+            ...f,
+            ...patch
+          }
+        }
+      });
+    return /*#__PURE__*/React.createElement("div", {
+      className: "card"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "card-head"
+    }, /*#__PURE__*/React.createElement("strong", null, "Cr\xE9ditos da mat\xE9ria-prima \xB7 confirmar com o fiscal")), /*#__PURE__*/React.createElement("div", {
+      className: "card-body"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "grid grid-3"
+    }, [['pcEligible', 'Crédito de PIS/COFINS permitido?'], ['icmsEligible', 'Crédito de ICMS permitido?'], ['ipiRecoverable', 'IPI da compra é recuperável?']].map(([key, label]) => /*#__PURE__*/React.createElement("label", {
+      className: "field",
+      key: key
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "field-label"
+    }, label), /*#__PURE__*/React.createElement("select", {
+      value: f[key] === true ? 'yes' : f[key] === false ? 'no' : '',
+      onChange: e => set({
+        [key]: e.target.value === 'yes' ? true : e.target.value === 'no' ? false : null
+      })
+    }, /*#__PURE__*/React.createElement("option", {
+      value: ""
+    }, "Pendente de confirma\xE7\xE3o"), /*#__PURE__*/React.createElement("option", {
+      value: "yes"
+    }, "Sim"), /*#__PURE__*/React.createElement("option", {
+      value: "no"
+    }, "N\xE3o"))))), /*#__PURE__*/React.createElement("p", {
+      className: "module-note"
+    }, "Ser fornecedor do Simples n\xE3o determina, sozinho, a exist\xEAncia de cr\xE9dito de PIS/COFINS. O ICMS informado deve ser o efetivamente permitido no documento. IPI recuper\xE1vel \xE9 exclu\xEDdo do custo."), nf.simples === 'SIM' && f.pcEligible && /*#__PURE__*/React.createElement("label", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "field-label"
+    }, "Base de cr\xE9dito de PIS/COFINS confirmada pelo fiscal (R$)"), /*#__PURE__*/React.createElement(window.NumInput, {
+      value: f.pcBase ?? 0,
+      onChange: pcBase => set({
+        pcBase
+      })
+    }), /*#__PURE__*/React.createElement("span", null, "Informe a base da aquisi\xE7\xE3o; n\xE3o utilize a al\xEDquota de cr\xE9dito de ICMS do Simples como destaque integral."))));
+  }
+  window.CreditOptions = CreditOptions;
+  function FiscalReview({
+    venda,
+    params,
+    setVenda,
+    hasPurchaseReview
+  }) {
+    const f = venda.fiscal || {},
+      set = patch => setVenda({
+        ...venda,
+        fiscal: {
+          ...f,
+          ...patch,
+          confirmed: false
+        }
+      });
+    return /*#__PURE__*/React.createElement("div", {
+      className: "card"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "card-head"
+    }, /*#__PURE__*/React.createElement("strong", null, "Enquadramento desta simula\xE7\xE3o \xB7 ano-base 2026")), /*#__PURE__*/React.createElement("div", {
+      className: "card-body"
+    }, /*#__PURE__*/React.createElement("p", {
+      className: "module-note"
+    }, "Simula\xE7\xE3o gerencial. N\xE3o emite nota nem apura o imposto definitivo da empresa. Al\xEDquotas estaduais sugeridas pelo arquivo precisam ser conferidas para o NCM e a opera\xE7\xE3o. Opera\xE7\xF5es especiais n\xE3o est\xE3o cobertas."), /*#__PURE__*/React.createElement("div", {
+      className: "grid grid-3"
+    }, /*#__PURE__*/React.createElement("label", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "field-label"
+    }, "NCM do produto vendido"), /*#__PURE__*/React.createElement("input", {
+      type: "text",
+      value: f.ncm || '',
+      onChange: e => set({
+        ncm: e.target.value
+      }),
+      placeholder: "8 d\xEDgitos"
+    })), /*#__PURE__*/React.createElement("label", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "field-label"
+    }, "Finalidade no destinat\xE1rio"), /*#__PURE__*/React.createElement("select", {
+      value: f.purpose || '',
+      onChange: e => set({
+        purpose: e.target.value
+      })
+    }, /*#__PURE__*/React.createElement("option", {
+      value: ""
+    }, "Selecionar"), /*#__PURE__*/React.createElement("option", {
+      value: "industrial"
+    }, "Industrializa\xE7\xE3o / revenda"), /*#__PURE__*/React.createElement("option", {
+      value: "final"
+    }, "Uso / consumo / ativo / consumidor final"))), /*#__PURE__*/React.createElement("label", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "field-label"
+    }, "Tratamento da opera\xE7\xE3o"), /*#__PURE__*/React.createElement("select", {
+      value: f.treatment || '',
+      onChange: e => set({
+        treatment: e.target.value
+      })
+    }, /*#__PURE__*/React.createElement("option", {
+      value: ""
+    }, "Selecionar"), /*#__PURE__*/React.createElement("option", {
+      value: "normal"
+    }, "Tributa\xE7\xE3o comum, sem ST/benef\xEDcio/monof\xE1sico"), /*#__PURE__*/React.createElement("option", {
+      value: "special"
+    }, "ST / benef\xEDcio / monof\xE1sico / opera\xE7\xE3o especial"))), /*#__PURE__*/React.createElement("label", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "field-label"
+    }, "ICMS da venda confirmado (%)"), /*#__PURE__*/React.createElement(window.NumInput, {
+      value: f.icms ?? (venda.uf === 'SP' ? params.icmsSp : window.UFS.find(u => u[0] === venda.uf)?.[1] * 100 || 0),
+      onChange: icms => set({
+        icms
+      })
+    })), /*#__PURE__*/React.createElement("label", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "field-label"
+    }, "ICMS interno do destino confirmado (%)"), /*#__PURE__*/React.createElement(window.NumInput, {
+      value: f.internal ?? (window.UFS.find(u => u[0] === venda.uf)?.[2] * 100 || 0),
+      onChange: internal => set({
+        internal
+      })
+    })), /*#__PURE__*/React.createElement("label", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "field-label"
+    }, "FCP devido nesta venda (R$), se aplic\xE1vel"), /*#__PURE__*/React.createElement(window.NumInput, {
+      value: f.fcp ?? 0,
+      onChange: fcp => set({
+        fcp
+      })
+    }))), /*#__PURE__*/React.createElement("p", {
+      className: "module-note"
+    }, "IRPJ/CSLL s\xE3o provis\xF5es com as taxas configuradas em Par\xE2metros. O adicional de IRPJ depende do lucro do per\xEDodo e n\xE3o \xE9 apurado por item. IBS/CBS de 2026 n\xE3o s\xE3o somados como carga extra automaticamente; a transi\xE7\xE3o deve ser conferida pelo fiscal. N\xE3o usar este modelo para 2027."), !hasPurchaseReview && /*#__PURE__*/React.createElement("p", {
+      className: "module-note"
+    }, "Falta confirmar os cr\xE9ditos da MP no m\xF3dulo 02."), f.treatment === 'special' && /*#__PURE__*/React.createElement("p", {
+      role: "alert"
+    }, "Esta opera\xE7\xE3o precisa de c\xE1lculo espec\xEDfico do fiscal. A margem n\xE3o ser\xE1 liberada pelo modelo comum."), /*#__PURE__*/React.createElement("label", {
+      className: "production-row"
+    }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("input", {
+      type: "checkbox",
+      checked: !!f.confirmed,
+      onChange: e => setVenda({
+        ...venda,
+        fiscal: {
+          ...f,
+          confirmed: e.target.checked
+        }
+      })
+    }), " Conferi os par\xE2metros, cr\xE9ditos, incid\xEAncias, FCP e provis\xF5es com o fiscal para esta simula\xE7\xE3o.")), /*#__PURE__*/React.createElement("details", null, /*#__PURE__*/React.createElement("summary", null, "Refer\xEAncias usadas nesta revis\xE3o"), /*#__PURE__*/React.createElement("ul", null, /*#__PURE__*/React.createElement("li", null, /*#__PURE__*/React.createElement("a", {
+      href: "https://legislacao.fazenda.sp.gov.br/Paginas/textoricms.aspx",
+      target: "_blank",
+      rel: "noreferrer"
+    }, "Sefaz-SP \xB7 DIFAL e base \xFAnica")), /*#__PURE__*/React.createElement("li", null, /*#__PURE__*/React.createElement("a", {
+      href: "https://www.gov.br/receitafederal/pt-br/assuntos/orientacao-tributaria/tributos/IRPJ",
+      target: "_blank",
+      rel: "noreferrer"
+    }, "Receita Federal \xB7 IRPJ e adicional")), /*#__PURE__*/React.createElement("li", null, /*#__PURE__*/React.createElement("a", {
+      href: "https://www.gov.br/pgfn/pt-br/cidadania-tributaria/por-assunto/pis-cofins-2/copy_of_nao-cumulatividade/conceito-de-insumos-e-ajustes-no-creditamento",
+      target: "_blank",
+      rel: "noreferrer"
+    }, "PGFN \xB7 cr\xE9ditos de PIS/COFINS")), /*#__PURE__*/React.createElement("li", null, /*#__PURE__*/React.createElement("a", {
+      href: "https://legislacao.fazenda.sp.gov.br/Paginas/RC32903_2025.aspx",
+      target: "_blank",
+      rel: "noreferrer"
+    }, "Sefaz-SP \xB7 IBS/CBS no exerc\xEDcio de 2026"))))));
+  }
+  window.FiscalReview = FiscalReview;
+})();
+(() => {
+  /* global React */
+  const {
+    useState,
+    useEffect,
+    useRef
+  } = React;
+
+  // =====================================================================
+  // MODAL DE LOGIN (fullscreen, bloqueante)
+  // =====================================================================
+  function LoginModal({
+    onSuccess,
+    onCancel
+  }) {
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [err, setErr] = useState('');
+    const [busy, setBusy] = useState(false);
+    const emailRef = useRef(null);
+    useEffect(() => {
+      setTimeout(() => emailRef.current?.focus(), 100);
+    }, []);
+    const submit = async () => {
+      if (!email || !password) {
+        setErr('Informe email e senha.');
+        return;
+      }
+      setErr('');
+      setBusy(true);
+      try {
+        await window.sb.signIn(email, password);
+        setPassword('');
+        onSuccess();
+      } catch (e) {
+        setErr(e.message || 'Credenciais inválidas.');
+      } finally {
+        setBusy(false);
+      }
+    };
+    const onKey = e => {
+      if (e.key === 'Enter') submit();
+    };
+    return /*#__PURE__*/React.createElement("div", {
+      className: "login-overlay"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "login-card"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "login-head"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "login-brand-mark"
+    }, "MP"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+      className: "login-title"
+    }, "Cat\xE1logo de mat\xE9rias-primas"), /*#__PURE__*/React.createElement("div", {
+      className: "login-sub"
+    }, "Mesma conta no computador e celular"))), /*#__PURE__*/React.createElement("div", {
+      className: "login-body"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("label", {
+      className: "field-label",
+      htmlFor: "catalog-email"
+    }, "Email"), /*#__PURE__*/React.createElement("input", {
+      id: "catalog-email",
+      ref: emailRef,
+      type: "email",
+      autoComplete: "username",
+      value: email,
+      onChange: e => setEmail(e.target.value),
+      onKeyDown: onKey,
+      placeholder: "seu@email.com"
+    })), /*#__PURE__*/React.createElement("div", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("label", {
+      className: "field-label",
+      htmlFor: "catalog-password"
+    }, "Senha"), /*#__PURE__*/React.createElement("input", {
+      id: "catalog-password",
+      type: "password",
+      autoComplete: "current-password",
+      value: password,
+      onChange: e => setPassword(e.target.value),
+      onKeyDown: onKey,
+      placeholder: "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
+    })), err && /*#__PURE__*/React.createElement("div", {
+      className: "login-error"
+    }, err)), /*#__PURE__*/React.createElement("div", {
+      className: "login-foot"
+    }, /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-ghost",
+      onClick: onCancel
+    }, "Voltar"), /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-primary btn-lg",
+      onClick: submit,
+      disabled: busy,
+      style: {
+        width: '100%'
+      }
+    }, busy ? 'Entrando…' : 'Entrar'))));
+  }
+  window.LoginModal = LoginModal;
+
+  // =====================================================================
+  // LOADING OVERLAY GLOBAL
+  // =====================================================================
+  function LoadingOverlay({
+    text
+  }) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "loading-overlay"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "loading-spinner"
+    }), /*#__PURE__*/React.createElement("div", {
+      className: "loading-text"
+    }, text || 'Carregando…'));
+  }
+  window.LoadingOverlay = LoadingOverlay;
+
+  // =====================================================================
+  // MODAL DE CONFIRMAÇÃO GENÉRICO (substitui confirm() nativo)
+  // =====================================================================
+  function ConfirmModal({
+    open,
+    title,
+    message,
+    okLabel = 'Confirmar',
+    cancelLabel = 'Cancelar',
+    danger = false,
+    onOk,
+    onCancel
+  }) {
+    useEffect(() => {
+      if (!open) return;
+      const onKey = e => {
+        if (e.key === 'Escape') onCancel?.();
+        if (e.key === 'Enter') onOk?.();
+      };
+      document.addEventListener('keydown', onKey);
+      return () => document.removeEventListener('keydown', onKey);
+    }, [open, onOk, onCancel]);
+    if (!open) return null;
+    return /*#__PURE__*/React.createElement("div", {
+      className: "login-overlay",
+      style: {
+        background: 'rgba(0,0,0,0.55)',
+        backdropFilter: 'blur(4px)'
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "login-card",
+      style: {
+        maxWidth: 420
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "login-head",
+      style: {
+        paddingBottom: 8
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "login-title",
+      style: {
+        fontSize: 16
+      }
+    }, title))), /*#__PURE__*/React.createElement("div", {
+      className: "login-body",
+      style: {
+        fontSize: 13,
+        lineHeight: 1.5,
+        color: 'var(--text-2)'
+      }
+    }, message), /*#__PURE__*/React.createElement("div", {
+      className: "login-foot",
+      style: {
+        display: 'flex',
+        gap: 8,
+        justifyContent: 'flex-end'
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-ghost",
+      onClick: onCancel
+    }, cancelLabel), /*#__PURE__*/React.createElement("button", {
+      className: `btn ${danger ? 'btn-danger' : 'btn-primary'}`,
+      onClick: onOk,
+      autoFocus: true
+    }, okLabel))));
+  }
+  window.ConfirmModal = ConfirmModal;
+  window.cloud = {
+    async listMP() {
+      return window.sb.select('materias_primas', 'select=id,seq,nome,ncm,fornecedor,nf_valor,nf_kg,nf_icms,custo_kg,ultima_compra_em,updated_at&order=updated_at.desc&limit=500');
+    },
+    async getMP(mpId) {
+      const arr = await window.sb.select('materias_primas', `id=eq.${mpId}&select=*`);
+      if (!arr || !arr.length) throw new Error('Matéria-prima não encontrada');
+      return arr[0];
+    },
+    async createMP(mp) {
+      // mp = { nome, ncm, fornecedor, cnpj_fornecedor, descricao_xml, notas, nf_*, custo_kg, nf_xml_info }
+      const payload = window.cloud._normalizarMP(mp);
+      const data = await window.sb.insert('materias_primas', payload);
+      return data && data[0];
+    },
+    async updateMP(mpId, patch) {
+      // patch pode ser parcial; aceita os mesmos campos de createMP
+      const normalizado = window.cloud._normalizarMP(patch, true);
+      const data = await window.sb.update('materias_primas', `id=eq.${mpId}`, normalizado);
+      return data && data[0];
+    },
+    async deleteMP(mpId) {
+      return window.sb.del('materias_primas', `id=eq.${mpId}`);
+    },
+    // Util: normaliza objeto de MP para payload Supabase
+    _normalizarMP(mp, parcial = false) {
+      const out = {};
+      const set = (k, v, def) => {
+        if (mp[k] !== undefined) out[k] = v ?? def;else if (!parcial && def !== undefined) out[k] = def;
+      };
+      set('nome', mp.nome, '');
+      set('ncm', mp.ncm || null, null);
+      set('fornecedor', mp.fornecedor || null, null);
+      set('cnpj_fornecedor', mp.cnpj_fornecedor || null, null);
+      set('descricao_xml', mp.descricao_xml || null, null);
+      set('notas', mp.notas || null, null);
+      set('nf_valor', +mp.nf_valor || 0, 0);
+      set('nf_kg', +mp.nf_kg || 0, 0);
+      set('nf_icms', +mp.nf_icms || 0, 18);
+      set('nf_ipi', +mp.nf_ipi || 0, 0);
+      if (mp.nf_simples !== undefined) out.nf_simples = !!mp.nf_simples;else if (!parcial) out.nf_simples = false;
+      set('nf_frete', +mp.nf_frete || 0, 0);
+      set('nf_seguro', +mp.nf_seguro || 0, 0);
+      set('nf_outras', +mp.nf_outras || 0, 0);
+      set('nf_desconto', +mp.nf_desconto || 0, 0);
+      if (mp.nf_xml_info !== undefined) out.nf_xml_info = mp.nf_xml_info;
+      if (mp.custo_kg !== undefined) out.custo_kg = +(+mp.custo_kg).toFixed(4);
+      if (mp.ultima_compra_em !== undefined) out.ultima_compra_em = mp.ultima_compra_em;
+      return out;
+    },
+    // Calcula custo/kg de uma MP usando a mesma lógica do calcProduto
+    calcularCustoKgMP(mp, params) {
+      if (!mp || !(Number(mp.nf_kg) > 0)) return 0;
+      return window.calcProduto({
+        nf: {
+          valor: mp.nf_valor,
+          kg: mp.nf_kg,
+          icms: mp.nf_icms,
+          ipi: mp.nf_ipi,
+          simples: mp.nf_simples ? 'SIM' : 'NAO',
+          frete: mp.nf_frete,
+          seguro: mp.nf_seguro,
+          outras: mp.nf_outras,
+          desconto: mp.nf_desconto,
+          xmlInfo: mp.nf_xml_info
+        },
+        prod: {
+          mpKg: 0,
+          qtd: 1
+        },
+        insumos: []
+      }, params).nf.custoKg;
+    }
+  };
+})();
+(() => {
+  /* global React */
+  const {
+    useState,
+    useEffect,
+    useCallback
+  } = React;
+  const {
+    brl,
+    intFmt
+  } = window;
+  const _fmtDate = iso => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleDateString('pt-BR') + ' · ' + d.toLocaleTimeString('pt-BR', {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  // =====================================================================
+  // MateriasPrimasView — aba principal
+  // =====================================================================
+  function MateriasPrimasView({
+    params,
+    onShowToast,
+    askConfirm,
+    setLoading,
+    disabled,
+    onItemsChange
+  }) {
+    const [items, setItems] = useState([]);
+    const [loaded, setLoaded] = useState(false);
+    const [editing, setEditing] = useState(null); // {modo: 'novo'|'editar', dados: {...}}
+    const [xmlOpen, setXmlOpen] = useState(false);
+    const [xmlParsed, setXmlParsed] = useState(null);
+
+    // Notifica o pai sempre que a lista mudar
+    useEffect(() => {
+      if (loaded && onItemsChange) onItemsChange(items);
+    }, [items, loaded]);
+    const recarregar = useCallback(async () => {
+      if (disabled) return;
+      setLoading?.({
+        text: 'Carregando matérias-primas…'
+      });
+      try {
+        const data = await window.cloud.listMP();
+        setItems(data || []);
+        setLoaded(true);
+        onShowToast(`${(data || []).length} matéria(s)-prima(s) carregada(s)`, 'ok');
+      } catch (e) {
+        onShowToast('Falha ao carregar: ' + e.message, 'err');
+      } finally {
+        setLoading?.(null);
+      }
+    }, [disabled, onShowToast, setLoading]);
+    useEffect(() => {
+      recarregar();
+    }, [disabled]);
+    const novo = () => {
+      setEditing({
+        modo: 'novo',
+        dados: {
+          nome: '',
+          ncm: '',
+          fornecedor: '',
+          cnpj_fornecedor: '',
+          nf_valor: 0,
+          nf_kg: 0,
+          nf_icms: 18,
+          nf_ipi: 0,
+          nf_simples: false,
+          nf_frete: 0,
+          nf_seguro: 0,
+          nf_outras: 0,
+          nf_desconto: 0,
+          nf_xml_info: null,
+          notas: ''
+        }
+      });
+    };
+    const abrirParaEdicao = async mpId => {
+      setLoading?.({
+        text: 'Carregando…'
+      });
+      try {
+        const mp = await window.cloud.getMP(mpId);
+        const N = x => {
+          const n = parseFloat(x);
+          return isNaN(n) ? 0 : n;
+        };
+        setEditing({
+          modo: 'editar',
+          dados: {
+            ...mp,
+            // garantir tipos numéricos (Postgres retorna strings para numeric)
+            nf_valor: N(mp.nf_valor),
+            nf_kg: N(mp.nf_kg),
+            nf_icms: N(mp.nf_icms),
+            nf_ipi: N(mp.nf_ipi),
+            nf_frete: N(mp.nf_frete),
+            nf_seguro: N(mp.nf_seguro),
+            nf_outras: N(mp.nf_outras),
+            nf_desconto: N(mp.nf_desconto),
+            custo_kg: N(mp.custo_kg),
+            nf_simples: !!mp.nf_simples
+          }
+        });
+      } catch (e) {
+        onShowToast('Falha: ' + e.message, 'err');
+      } finally {
+        setLoading?.(null);
+      }
+    };
+    const salvar = async () => {
+      const d = editing.dados;
+      if (!d.nome || !d.nome.trim()) {
+        onShowToast('Informe o nome da matéria-prima', 'err');
+        return;
+      }
+      if (!d.nf_kg || d.nf_kg <= 0) {
+        onShowToast('Informe a quantidade em kg', 'err');
+        return;
+      }
+      setLoading?.({
+        text: 'Salvando…'
+      });
+      try {
+        const custoKg = window.cloud.calcularCustoKgMP(d, params);
+        const payload = {
+          ...d,
+          custo_kg: custoKg,
+          ultima_compra_em: new Date().toISOString()
+        };
+        if (editing.modo === 'novo') {
+          const saved = await window.cloud.createMP(payload);
+          onShowToast(`MP #${String(saved.seq).padStart(4, '0')} criada · custo R$ ${custoKg.toFixed(4)}/kg`, 'ok');
+        } else {
+          await window.cloud.updateMP(d.id, payload);
+          onShowToast(`MP atualizada · novo custo R$ ${custoKg.toFixed(4)}/kg`, 'ok');
+        }
+        setEditing(null);
+        await recarregar();
+      } catch (e) {
+        onShowToast('Falha: ' + e.message, 'err');
+      } finally {
+        setLoading?.(null);
+      }
+    };
+    const excluir = async mp => {
+      const ok = await askConfirm({
+        title: 'Excluir matéria-prima',
+        message: `Excluir "${mp.nome}" (MP #${String(mp.seq).padStart(4, '0')})? Produtos vinculados perdem o link mas continuam funcionando com a NF embutida atual.`,
+        okLabel: 'Excluir',
+        danger: true
+      });
+      if (!ok) return;
+      setLoading?.({
+        text: 'Excluindo…'
+      });
+      try {
+        await window.cloud.deleteMP(mp.id);
+        setItems(prev => prev.filter(i => i.id !== mp.id));
+        onShowToast('Matéria-prima excluída', 'ok');
+      } catch (e) {
+        onShowToast('Falha: ' + e.message, 'err');
+      } finally {
+        setLoading?.(null);
+      }
+    };
+
+    // Importar XML cria nova MP (ou abre seleção de itens se múltiplos)
+    const [xmlText, setXmlText] = useState('');
+    const processarXmlMP = () => {
+      const texto = (xmlText || '').trim();
+      if (!texto) {
+        onShowToast('Cole o XML da NF-e', 'err');
+        return;
+      }
+      const parsed = window.parseXmlNFe(texto);
+      if (!parsed.ok) {
+        onShowToast(parsed.erro || 'Falha', 'err');
+        return;
+      }
+      const grupos = window.agruparItensXml(parsed.itens);
+      if (grupos.length === 1) {
+        aplicarXmlNovaMP(window.calcularSelecaoXml(grupos, parsed), parsed);
+      } else {
+        setXmlParsed(parsed);
+        setXmlOpen(true);
+      }
+    };
+    const aplicarXmlNovaMP = (selecao, parsed) => {
+      // Cria editor preenchido a partir do XML
+      setXmlText('');
+      setXmlOpen(false);
+      setXmlParsed(null);
+      setEditing({
+        modo: 'novo',
+        dados: {
+          nome: selecao.descricoes?.[0] || parsed.fornecedor || 'Nova matéria-prima',
+          ncm: selecao.ncms?.[0] || '',
+          fornecedor: parsed.fornecedor || '',
+          cnpj_fornecedor: parsed.cnpj || '',
+          descricao_xml: selecao.descricoes?.join(' / ') || '',
+          nf_valor: +selecao.valor.toFixed(2),
+          nf_kg: selecao.isKg ? +selecao.qtd.toFixed(3) : 0,
+          nf_icms: +selecao.aliqICMS.toFixed(2),
+          nf_ipi: +selecao.aliqIPI.toFixed(2),
+          nf_simples: parsed.isSimples,
+          nf_frete: +(selecao.frete || 0).toFixed(2),
+          nf_seguro: +(selecao.seguro || 0).toFixed(2),
+          nf_outras: +(selecao.outras || 0).toFixed(2),
+          nf_desconto: +(selecao.desconto || 0).toFixed(2),
+          nf_xml_info: {
+            fornecedor: parsed.fornecedor,
+            cnpj: parsed.cnpj,
+            descricoes: selecao.descricoes,
+            ncms: selecao.ncms,
+            qtdItens: selecao.qtdItens,
+            unidade: selecao.unidade,
+            isKg: selecao.isKg,
+            qtdOriginal: selecao.qtd,
+            totalItensNF: parsed.itens.length,
+            importadoEm: new Date().toISOString()
+          },
+          notas: !selecao.isKg ? `⚠ Unidade do XML era "${selecao.unidade}", preencha kg manualmente.` : ''
+        }
+      });
+      let msg = `XML lido: ${selecao.qtdItens} item(s). Revise e salve.`;
+      if (selecao.hasST) msg += ' · ⚠ contém ICMS-ST';
+      if (!selecao.isKg) msg += ` · ⚠ unidade ${selecao.unidade} — informe kg`;
+      onShowToast(msg, selecao.hasST || !selecao.isKg ? 'warn' : 'ok');
+    };
+
+    // Renderiza editor (modal) se houver
+    if (editing) {
+      return /*#__PURE__*/React.createElement(MPEditor, {
+        editing: editing,
+        setEditing: setEditing,
+        params: params,
+        onSalvar: salvar,
+        onCancelar: () => setEditing(null)
+      });
+    }
+    return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+      className: "hist-toolbar"
+    }, /*#__PURE__*/React.createElement("h1", null, "Mat\xE9rias-primas"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        gap: 10,
+        alignItems: 'center'
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "meta"
+    }, loaded ? `${items.length} cadastradas` : 'Não carregado'), /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-ghost btn-sm",
+      onClick: recarregar,
+      disabled: disabled
+    }, /*#__PURE__*/React.createElement(window.Icons.IcoRefresh, {
+      size: 12
+    }), " Atualizar"), /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-primary btn-sm",
+      onClick: novo,
+      disabled: disabled
+    }, /*#__PURE__*/React.createElement(window.Icons.IcoPlus, {
+      size: 12
+    }), " Nova"))), /*#__PURE__*/React.createElement("div", {
+      className: "card"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "card-head"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "h-title"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "h-num"
+    }, "XML"), /*#__PURE__*/React.createElement("span", {
+      className: "h-label"
+    }, "Importar mat\xE9ria-prima a partir de NF-e"))), /*#__PURE__*/React.createElement("div", {
+      className: "card-body"
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'grid',
+        gridTemplateColumns: '1fr auto',
+        gap: 12,
+        alignItems: 'end'
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("textarea", {
+      placeholder: "Cole o XML da NF-e da compra\u2026",
+      value: xmlText,
+      onChange: e => setXmlText(e.target.value),
+      rows: 5,
+      style: {
+        width: '100%',
+        fontFamily: 'var(--font-mono)',
+        fontSize: 11
+      }
+    })), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-primary",
+      onClick: processarXmlMP,
+      disabled: disabled
+    }, /*#__PURE__*/React.createElement(window.Icons.IcoFile, {
+      size: 12
+    }), " Importar XML"), /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-sm btn-ghost",
+      onClick: () => setXmlText(''),
+      disabled: !xmlText
+    }, "Limpar"))))), !loaded && /*#__PURE__*/React.createElement("div", {
+      className: "banner banner-info"
+    }, /*#__PURE__*/React.createElement(window.Icons.IcoStack, {
+      size: 14
+    }), /*#__PURE__*/React.createElement("div", null, "Clique em ", /*#__PURE__*/React.createElement("strong", null, "Atualizar"), " para carregar o cat\xE1logo, ou em ", /*#__PURE__*/React.createElement("strong", null, "Nova"), " para criar manualmente.")), loaded && items.length === 0 && /*#__PURE__*/React.createElement("div", {
+      className: "banner banner-info"
+    }, /*#__PURE__*/React.createElement(window.Icons.IcoStack, {
+      size: 14
+    }), /*#__PURE__*/React.createElement("div", null, "Nenhuma mat\xE9ria-prima cadastrada. Crie uma ", /*#__PURE__*/React.createElement("strong", null, "Nova"), " ou cole o XML acima.")), loaded && items.length > 0 && /*#__PURE__*/React.createElement("div", {
+      className: "hist-table"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "hist-row head",
+      style: {
+        gridTemplateColumns: '70px 1fr 120px 110px 110px 130px 100px'
+      }
+    }, /*#__PURE__*/React.createElement("div", null, "ID"), /*#__PURE__*/React.createElement("div", null, "Nome"), /*#__PURE__*/React.createElement("div", null, "NCM"), /*#__PURE__*/React.createElement("div", {
+      className: "num",
+      style: {
+        textAlign: 'right'
+      }
+    }, "NF valor"), /*#__PURE__*/React.createElement("div", {
+      className: "num",
+      style: {
+        textAlign: 'right'
+      }
+    }, "Custo/kg"), /*#__PURE__*/React.createElement("div", null, "\xDAltima compra"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        textAlign: 'right'
+      }
+    }, "A\xE7\xF5es")), items.map(mp => /*#__PURE__*/React.createElement("div", {
+      className: "hist-row",
+      key: mp.id,
+      style: {
+        gridTemplateColumns: '70px 1fr 120px 110px 110px 130px 100px'
+      }
+    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
+      className: "seq"
+    }, "MP#", String(mp.seq).padStart(4, '0'))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap'
+      }
+    }, mp.nome, mp.fornecedor && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: 'var(--text-3)'
+      }
+    }, mp.fornecedor)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: 'var(--font-mono)',
+        color: 'var(--text-3)',
+        fontSize: 11.5
+      }
+    }, mp.ncm || '—'), /*#__PURE__*/React.createElement("div", {
+      className: "num"
+    }, brl(mp.nf_valor)), /*#__PURE__*/React.createElement("div", {
+      className: "num",
+      style: {
+        color: 'var(--accent)',
+        fontWeight: 600
+      }
+    }, brl(mp.custo_kg, 4)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11.5,
+        color: 'var(--text-3)'
+      }
+    }, _fmtDate(mp.ultima_compra_em)), /*#__PURE__*/React.createElement("div", {
+      className: "actions"
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => abrirParaEdicao(mp.id),
+      title: "Editar / atualizar compra"
+    }, /*#__PURE__*/React.createElement(window.Icons.IcoEye, {
+      size: 11
+    }), " Editar"), /*#__PURE__*/React.createElement("button", {
+      className: "del",
+      onClick: () => excluir(mp),
+      title: "Excluir"
+    }, /*#__PURE__*/React.createElement(window.Icons.IcoTrash, {
+      size: 11
+    })))))), /*#__PURE__*/React.createElement(window.XmlSelectModal, {
+      open: xmlOpen,
+      parsed: xmlParsed,
+      onCancel: () => {
+        setXmlOpen(false);
+        setXmlParsed(null);
+      },
+      onConfirm: ({
+        selecao,
+        parsed
+      }) => aplicarXmlNovaMP(selecao, parsed)
+    }));
+  }
+
+  // =====================================================================
+  // MPEditor — formulário de criação/edição de uma matéria-prima
+  // =====================================================================
+  function MPEditor({
+    editing,
+    setEditing,
+    params,
+    onSalvar,
+    onCancelar
+  }) {
+    const d = editing.dados;
+    // setD usa callback para sempre aplicar o patch sobre o estado mais recente.
+    // Isso evita perda de dados quando vários inputs disparam updates em sequência.
+    const NUM_FIELDS = ['nf_valor', 'nf_kg', 'nf_icms', 'nf_ipi', 'nf_frete', 'nf_seguro', 'nf_outras', 'nf_desconto'];
+    const coerceNum = (v, fallback = 0) => {
+      if (v && typeof v === 'object' && v.target && 'value' in v.target) {
+        return coerceNum(v.target.value, fallback);
+      }
+      if (typeof v === 'number' && isFinite(v)) return v;
+      if (typeof window.__parseLocaleNumber === 'function') {
+        const parsed = window.__parseLocaleNumber(v);
+        return parsed === null ? fallback : parsed;
+      }
+      const n = parseFloat(String(v ?? '').replace(',', '.'));
+      return isNaN(n) ? fallback : n;
+    };
+    const setD = patch => {
+      setEditing(prev => {
+        const limpo = {
+          ...patch
+        };
+        for (const k of NUM_FIELDS) {
+          if (k in limpo) limpo[k] = coerceNum(limpo[k], prev.dados[k] ?? 0);
+        }
+        return {
+          ...prev,
+          dados: {
+            ...prev.dados,
+            ...limpo
+          }
+        };
+      });
+    };
+
+    // Recalcula custo/kg em tempo real
+    const custoKg = window.cloud.calcularCustoKgMP(d, params);
+    return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+      className: "hist-toolbar"
+    }, /*#__PURE__*/React.createElement("h1", null, editing.modo === 'novo' ? 'Nova matéria-prima' : `Editando "${d.nome}"`), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        gap: 8
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-ghost btn-sm",
+      onClick: onCancelar
+    }, "\u2190 Voltar"))), editing.modo === 'editar' && /*#__PURE__*/React.createElement("div", {
+      className: "banner banner-info"
+    }, /*#__PURE__*/React.createElement(window.Icons.IcoRefresh, {
+      size: 14
+    }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("strong", null, "Atualiza\xE7\xE3o sobrescreve a \xFAltima compra."), " Os dados anteriores s\xE3o substitu\xEDdos; n\xE3o h\xE1 hist\xF3rico nesta vers\xE3o. Produtos vinculados continuam usando o snapshot capturado no momento que vincularam.")), /*#__PURE__*/React.createElement("div", {
+      className: "card"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "card-head"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "h-title"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "h-num"
+    }, "01"), /*#__PURE__*/React.createElement("span", {
+      className: "h-label"
+    }, "Identifica\xE7\xE3o"))), /*#__PURE__*/React.createElement("div", {
+      className: "card-body"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "grid grid-3"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("label", {
+      className: "field-label"
+    }, "Nome da mat\xE9ria-prima"), /*#__PURE__*/React.createElement("input", {
+      type: "text",
+      value: d.nome || '',
+      onChange: e => setD({
+        nome: e.target.value
+      }),
+      placeholder: "ex: BOPP 30mc metalizado"
+    })), /*#__PURE__*/React.createElement("div", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("label", {
+      className: "field-label"
+    }, "NCM"), /*#__PURE__*/React.createElement("input", {
+      type: "text",
+      value: d.ncm || '',
+      onChange: e => setD({
+        ncm: e.target.value
+      }),
+      placeholder: "ex: 39202019"
+    })), /*#__PURE__*/React.createElement("div", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("label", {
+      className: "field-label"
+    }, "Fornecedor"), /*#__PURE__*/React.createElement("input", {
+      type: "text",
+      value: d.fornecedor || '',
+      onChange: e => setD({
+        fornecedor: e.target.value
+      }),
+      placeholder: "ex: Aicrag Embalagens"
+    })), /*#__PURE__*/React.createElement("div", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("label", {
+      className: "field-label"
+    }, "CNPJ do fornecedor"), /*#__PURE__*/React.createElement("input", {
+      type: "text",
+      value: d.cnpj_fornecedor || '',
+      onChange: e => setD({
+        cnpj_fornecedor: e.target.value
+      }),
+      placeholder: "apenas d\xEDgitos ou formatado"
+    })), /*#__PURE__*/React.createElement("div", {
+      className: "field",
+      style: {
+        gridColumn: 'span 2'
+      }
+    }, /*#__PURE__*/React.createElement("label", {
+      className: "field-label"
+    }, "Notas (opcional)"), /*#__PURE__*/React.createElement("input", {
+      type: "text",
+      value: d.notas || '',
+      onChange: e => setD({
+        notas: e.target.value
+      }),
+      placeholder: "anota\xE7\xF5es livres"
+    }))))), /*#__PURE__*/React.createElement("div", {
+      className: "card"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "card-head"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "h-title"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "h-num"
+    }, "02"), /*#__PURE__*/React.createElement("span", {
+      className: "h-label"
+    }, "Dados da \xFAltima compra"))), /*#__PURE__*/React.createElement("div", {
+      className: "card-body"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "grid grid-4"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("label", {
+      className: "field-label"
+    }, "Valor total NF (R$)"), /*#__PURE__*/React.createElement(window.NumInput, {
+      value: d.nf_valor,
+      onChange: n => setD({
+        nf_valor: n
+      })
+    })), /*#__PURE__*/React.createElement("div", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("label", {
+      className: "field-label"
+    }, "Quantidade (kg)"), /*#__PURE__*/React.createElement(window.NumInput, {
+      value: d.nf_kg,
+      onChange: n => setD({
+        nf_kg: n
+      })
+    })), /*#__PURE__*/React.createElement("div", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("label", {
+      className: "field-label"
+    }, "ICMS destacado (%)"), /*#__PURE__*/React.createElement(window.NumInput, {
+      value: d.nf_icms,
+      onChange: n => setD({
+        nf_icms: n
+      })
+    })), /*#__PURE__*/React.createElement("div", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("label", {
+      className: "field-label"
+    }, "IPI (%)"), /*#__PURE__*/React.createElement(window.NumInput, {
+      value: d.nf_ipi,
+      onChange: n => setD({
+        nf_ipi: n
+      })
+    })), /*#__PURE__*/React.createElement("div", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("label", {
+      className: "field-label"
+    }, "Fornecedor Simples?", /*#__PURE__*/React.createElement(window.Tooltip, {
+      text: "Confirme separadamente os cr\xE9ditos permitidos desta aquisi\xE7\xE3o."
+    })), /*#__PURE__*/React.createElement(window.Segmented, {
+      value: d.nf_simples ? 'SIM' : 'NAO',
+      onChange: v => setD({
+        nf_simples: v === 'SIM'
+      }),
+      options: [{
+        value: 'SIM',
+        label: 'Sim'
+      }, {
+        value: 'NAO',
+        label: 'Não'
+      }]
+    })), /*#__PURE__*/React.createElement("div", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("label", {
+      className: "field-label"
+    }, "Frete (R$)"), /*#__PURE__*/React.createElement(window.NumInput, {
+      value: d.nf_frete,
+      onChange: n => setD({
+        nf_frete: n
+      })
+    })), /*#__PURE__*/React.createElement("div", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("label", {
+      className: "field-label"
+    }, "Seguro (R$)"), /*#__PURE__*/React.createElement(window.NumInput, {
+      value: d.nf_seguro,
+      onChange: n => setD({
+        nf_seguro: n
+      })
+    })), /*#__PURE__*/React.createElement("div", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("label", {
+      className: "field-label"
+    }, "Outras despesas (R$)"), /*#__PURE__*/React.createElement(window.NumInput, {
+      value: d.nf_outras,
+      onChange: n => setD({
+        nf_outras: n
+      })
+    })), /*#__PURE__*/React.createElement("div", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("label", {
+      className: "field-label"
+    }, "Desconto (R$)"), /*#__PURE__*/React.createElement(window.NumInput, {
+      value: d.nf_desconto,
+      onChange: n => setD({
+        nf_desconto: n
+      })
+    }))), /*#__PURE__*/React.createElement("div", {
+      className: "subhead"
+    }, "Custo calculado"), /*#__PURE__*/React.createElement("div", {
+      className: "grid grid-4"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("label", {
+      className: "field-label"
+    }, "Custo l\xEDquido por kg"), /*#__PURE__*/React.createElement("div", {
+      className: "computed accent",
+      style: {
+        fontSize: 16,
+        fontWeight: 700
+      }
+    }, brl(custoKg, 4))), /*#__PURE__*/React.createElement("div", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("label", {
+      className: "field-label"
+    }, "Custo bruto (sem cr\xE9ditos)"), /*#__PURE__*/React.createElement("div", {
+      className: "computed"
+    }, brl(d.nf_kg > 0 ? d.nf_valor / d.nf_kg : 0, 4)))))), /*#__PURE__*/React.createElement(window.CreditOptions, {
+      nf: {
+        simples: d.nf_simples ? 'SIM' : 'NAO',
+        xmlInfo: d.nf_xml_info
+      },
+      onChange: nf => setD({
+        nf_xml_info: nf.xmlInfo
+      })
+    }), /*#__PURE__*/React.createElement("div", {
+      className: "save-bar"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "hint"
+    }, editing.modo === 'novo' ? 'Após salvar, esta MP estará disponível em "Matéria-prima" no cadastro de produtos.' : 'Salvar sobrescreve os dados anteriores. Use somente para registrar a nova compra mais recente.'), /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-ghost",
+      onClick: onCancelar
+    }, "Cancelar"), /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-primary btn-lg",
+      onClick: onSalvar
+    }, /*#__PURE__*/React.createElement(window.Icons.IcoSave, {
+      size: 13
+    }), " ", editing.modo === 'novo' ? 'Criar MP' : 'Atualizar compra')));
+  }
+  window.MateriasPrimasView = MateriasPrimasView;
+
+  // =====================================================================
+  // MPSeletor — bloco que aparece na ProdutoView para vincular MP do catálogo
+  // =====================================================================
+  function MPSeletor({
+    produto,
+    setProduto,
+    onShowToast
+  }) {
+    const [mps, setMps] = useState([]);
+    const [carregando, setCarregando] = useState(false);
+    const [carregado, setCarregado] = useState(false);
+    const [mostraSeletor, setMostraSeletor] = useState(false);
+
+    // Vínculo armazenado em produto.nf.materiaPrimaId (e snapshot em .materiaPrimaSnapshot)
+    const mpId = produto.nf.materiaPrimaId;
+    const snapshot = produto.nf.materiaPrimaSnapshot;
+    const carregarLista = async () => {
+      setCarregando(true);
+      try {
+        const data = await window.cloud.listMP();
+        setMps(data || []);
+        setCarregado(true);
+      } catch (e) {
+        onShowToast('Falha ao carregar matérias-primas: ' + e.message, 'err');
+      } finally {
+        setCarregando(false);
+      }
+    };
+    const abrirSeletor = async () => {
+      if (!carregado) await carregarLista();
+      setMostraSeletor(true);
+    };
+    const escolherMP = async mpResumo => {
+      setMostraSeletor(false);
+      setCarregando(true);
+      try {
+        // Busca dados completos da MP escolhida (lista só traz campos resumidos)
+        const mp = await window.cloud.getMP(mpResumo.id);
+        const N = x => {
+          const n = parseFloat(x);
+          return isNaN(n) ? 0 : n;
+        };
+        // Aplica no produto: preenche NF a partir da MP e guarda vínculo + snapshot
+        setProduto({
+          ...produto,
+          nf: {
+            ...produto.nf,
+            valor: N(mp.nf_valor),
+            kg: N(mp.nf_kg),
+            icms: N(mp.nf_icms),
+            ipi: N(mp.nf_ipi),
+            simples: mp.nf_simples ? 'SIM' : 'NAO',
+            frete: N(mp.nf_frete),
+            seguro: N(mp.nf_seguro),
+            outras: N(mp.nf_outras),
+            desconto: N(mp.nf_desconto),
+            xmlInfo: mp.nf_xml_info,
+            // Vínculo:
+            materiaPrimaId: mp.id,
+            materiaPrimaSnapshot: {
+              id: mp.id,
+              seq: mp.seq,
+              nome: mp.nome,
+              ncm: mp.ncm,
+              fornecedor: mp.fornecedor,
+              custoKgCalculado: window.cloud.calcularCustoKgMP(mp, params),
+              ultimaCompraEm: mp.ultima_compra_em,
+              vinculadoEm: new Date().toISOString()
+            }
+          }
+        });
+        onShowToast(`MP "${mp.nome}" vinculada · custo R$ ${N(mp.custo_kg).toFixed(4)}/kg`, 'ok');
+      } catch (e) {
+        onShowToast('Falha: ' + e.message, 'err');
+      } finally {
+        setCarregando(false);
+      }
+    };
+    const desvincular = () => {
+      // Remove vínculo MAS preserva os campos de NF (B2: produto continua funcionando)
+      const {
+        materiaPrimaId,
+        materiaPrimaSnapshot,
+        ...rest
+      } = produto.nf;
+      setProduto({
+        ...produto,
+        nf: rest
+      });
+      onShowToast('Vínculo removido. NF embutida preservada.', 'ok');
+    };
+    return /*#__PURE__*/React.createElement("div", {
+      className: "card"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "card-head"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "h-title"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "h-num"
+    }, "MP"), /*#__PURE__*/React.createElement("span", {
+      className: "h-label"
+    }, "Mat\xE9ria-prima do cat\xE1logo")), /*#__PURE__*/React.createElement("span", {
+      className: "h-sub"
+    }, "Opcional. Vincule a uma MP cadastrada para preencher automaticamente.")), /*#__PURE__*/React.createElement("div", {
+      className: "card-body"
+    }, mpId && snapshot ? /*#__PURE__*/React.createElement("div", {
+      className: "banner banner-accent",
+      style: {
+        marginBottom: 0
+      }
+    }, /*#__PURE__*/React.createElement(window.Icons.IcoStack, {
+      size: 14
+    }), /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1,
+        minWidth: 0
+      }
+    }, /*#__PURE__*/React.createElement("strong", null, "Vinculado a MP #", String(snapshot.seq).padStart(4, '0'), " \xB7 ", snapshot.nome), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11.5,
+        color: 'var(--text-3)',
+        marginTop: 2
+      }
+    }, "Fornecedor: ", snapshot.fornecedor || '—', " \xB7 Custo: ", brl(snapshot.custoKgCalculado || 0, 4), "/kg \xB7 \xDAltima compra: ", _fmtDate(snapshot.ultimaCompraEm)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: 'var(--text-4)',
+        marginTop: 4
+      }
+    }, "Vinculado em ", _fmtDate(snapshot.vinculadoEm), ". Edite a MP em \"Mat\xE9rias-primas\" e revincule aqui para atualizar.")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        gap: 6,
+        flexDirection: 'column'
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-ghost btn-sm",
+      onClick: abrirSeletor
+    }, /*#__PURE__*/React.createElement(window.Icons.IcoRefresh, {
+      size: 11
+    }), " Trocar"), /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-ghost btn-sm",
+      onClick: desvincular,
+      style: {
+        color: 'var(--negative)'
+      }
+    }, "Desvincular"))) : /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        gap: 12,
+        alignItems: 'center'
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1,
+        fontSize: 12.5,
+        color: 'var(--text-3)'
+      }
+    }, "Sem MP vinculada. A NF abaixo \xE9 editada manualmente (ou via XML)."), /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-primary btn-sm",
+      onClick: abrirSeletor,
+      disabled: carregando
+    }, /*#__PURE__*/React.createElement(window.Icons.IcoStack, {
+      size: 12
+    }), " ", carregando ? 'Carregando…' : 'Vincular MP')), mostraSeletor && /*#__PURE__*/React.createElement(MPSeletorModal, {
+      mps: mps,
+      onPick: escolherMP,
+      onClose: () => setMostraSeletor(false),
+      onReload: carregarLista,
+      carregando: carregando
+    })));
+  }
+
+  // Modal de seleção (lista) — reusa estilos do XmlSelectModal
+  function MPSeletorModal({
+    mps,
+    onPick,
+    onClose,
+    onReload,
+    carregando
+  }) {
+    const [filtro, setFiltro] = useState('');
+    const filtradas = !filtro ? mps : mps.filter(m => (m.nome || '').toLowerCase().includes(filtro.toLowerCase()) || (m.fornecedor || '').toLowerCase().includes(filtro.toLowerCase()) || (m.ncm || '').includes(filtro));
+    return /*#__PURE__*/React.createElement("div", {
+      className: "xml-modal-overlay",
+      onClick: onClose
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "xml-modal-card",
+      onClick: e => e.stopPropagation()
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "xml-modal-head"
+    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+      className: "xml-modal-title"
+    }, "Selecionar mat\xE9ria-prima"), /*#__PURE__*/React.createElement("div", {
+      className: "xml-modal-sub"
+    }, mps.length, " cadastradas \u2014 escolha uma para vincular ao produto")), /*#__PURE__*/React.createElement("button", {
+      className: "xml-modal-close",
+      onClick: onClose
+    }, "\xD7")), /*#__PURE__*/React.createElement("div", {
+      className: "xml-modal-toolbar"
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "text",
+      value: filtro,
+      onChange: e => setFiltro(e.target.value),
+      placeholder: "Filtrar por nome, fornecedor ou NCM\u2026",
+      style: {
+        flex: 1,
+        padding: '6px 10px',
+        fontSize: 12.5
+      }
+    }), /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-ghost btn-sm",
+      onClick: onReload,
+      disabled: carregando
+    }, /*#__PURE__*/React.createElement(window.Icons.IcoRefresh, {
+      size: 11
+    }), " Atualizar")), /*#__PURE__*/React.createElement("div", {
+      className: "xml-modal-list"
+    }, filtradas.length === 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        padding: 30,
+        textAlign: 'center',
+        color: 'var(--text-3)',
+        fontSize: 12.5
+      }
+    }, mps.length === 0 ? 'Nenhuma MP cadastrada. Crie em "Matérias-primas" no menu.' : 'Nenhuma MP corresponde ao filtro.'), filtradas.map(mp => /*#__PURE__*/React.createElement("div", {
+      key: mp.id,
+      className: "xml-item",
+      onClick: () => onPick(mp),
+      style: {
+        cursor: 'pointer'
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "xml-item-body"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "xml-item-title"
+    }, "MP#", String(mp.seq).padStart(4, '0'), " \xB7 ", mp.nome), /*#__PURE__*/React.createElement("div", {
+      className: "xml-item-meta"
+    }, mp.fornecedor && /*#__PURE__*/React.createElement("span", null, mp.fornecedor, " \xB7 "), mp.ncm && /*#__PURE__*/React.createElement("span", null, "NCM ", mp.ncm, " \xB7 "), /*#__PURE__*/React.createElement("span", null, "NF ", brl(mp.nf_valor), " \xB7 ", intFmt(mp.nf_kg), " kg"))), /*#__PURE__*/React.createElement("div", {
+      className: "xml-item-value",
+      style: {
+        color: 'var(--accent)'
+      }
+    }, brl(mp.custo_kg, 4), "/kg")))), /*#__PURE__*/React.createElement("div", {
+      className: "xml-modal-foot"
+    }, /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-ghost",
+      onClick: onClose
+    }, "Cancelar"))));
+  }
+  window.MPSeletor = MPSeletor;
+})();
+(() => {
   /* global React */
   const {
     useState,
@@ -2945,7 +4484,7 @@ window.aplicarXmlAoProduto = function aplicarXmlAoProduto(produto, selecao, pars
     }, /*#__PURE__*/React.createElement("label", {
       className: "field-label"
     }, "Fornecedor Simples Nacional?", /*#__PURE__*/React.createElement(window.Tooltip, {
-      text: "Se SIM, zera o cr\xE9dito de PIS/COFINS sobre a compra. ICMS continua credit\xE1vel at\xE9 o limite destacado."
+      text: "Ser optante do Simples n\xE3o decide sozinho o cr\xE9dito de PIS/COFINS. Confirme os cr\xE9ditos permitidos na se\xE7\xE3o espec\xEDfica."
     })), /*#__PURE__*/React.createElement(window.Segmented, {
       value: produto.nf.simples,
       onChange: val => setNF({
@@ -3041,6 +4580,18 @@ window.aplicarXmlAoProduto = function aplicarXmlAoProduto(produto, selecao, pars
     }, "Total cr\xE9ditos"), /*#__PURE__*/React.createElement("div", {
       className: "computed positive"
     }, brl(c.nf.credTotal))), /*#__PURE__*/React.createElement("div", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("label", {
+      className: "field-label"
+    }, "Cr\xE9dito de ICMS considerado"), /*#__PURE__*/React.createElement("div", {
+      className: "computed"
+    }, brl(c.nf.credICMS))), /*#__PURE__*/React.createElement("div", {
+      className: "field"
+    }, /*#__PURE__*/React.createElement("label", {
+      className: "field-label"
+    }, "IPI recuper\xE1vel considerado"), /*#__PURE__*/React.createElement("div", {
+      className: "computed"
+    }, brl(c.nf.credIPI))), /*#__PURE__*/React.createElement("div", {
       className: "field"
     }, /*#__PURE__*/React.createElement("label", {
       className: "field-label"
@@ -3258,20 +4809,34 @@ window.aplicarXmlAoProduto = function aplicarXmlAoProduto(produto, selecao, pars
     onExitView,
     onSave,
     savingHint,
-    onExport
+    onExport,
+    costReady = true
   }) {
     const v = state.venda;
     const c = calc;
     const denom = c.dre.receitaBruta || 1;
     const produto = state.produtos.find(p => p.id === v.produtoId);
     const cmvZero = c.cmvUn === 0;
-    const setV = patch => setState({
-      ...state,
-      venda: {
-        ...state.venda,
-        ...patch
-      }
-    });
+    const setV = patch => {
+      const fiscalChanged = ['uf', 'contrib', 'ipi'].some(k => Object.prototype.hasOwnProperty.call(patch, k));
+      setState({
+        ...state,
+        venda: {
+          ...state.venda,
+          ...patch,
+          ...(fiscalChanged ? {
+            fiscal: {
+              ...(state.venda.fiscal || {}),
+              confirmed: false,
+              ...(Object.prototype.hasOwnProperty.call(patch, 'uf') ? {
+                icms: null,
+                internal: null
+              } : {})
+            }
+          } : {})
+        }
+      });
+    };
     const dreRows = [{
       label: 'Valor total da nota fiscal',
       val: c.dre.valorNota,
@@ -3297,8 +4862,12 @@ window.aplicarXmlAoProduto = function aplicarXmlAoProduto(produto, selecao, pars
       val: -c.dre.cofins,
       cls: ''
     }, {
-      label: '(−) DIFAL (LC 190/22 base dupla)',
+      label: '(−) DIFAL · base única / operação comum',
       val: -c.dre.difal,
+      cls: ''
+    }, {
+      label: '(−) FCP informado pelo fiscal',
+      val: -c.dre.fcp,
       cls: ''
     }, {
       label: 'Receita líquida',
@@ -3325,15 +4894,15 @@ window.aplicarXmlAoProduto = function aplicarXmlAoProduto(produto, selecao, pars
       val: c.dre.lucroAntesIR,
       cls: 'subtotal'
     }, {
-      label: `(−) IRPJ (${state.params.irpj}%)`,
+      label: `(−) Provisão gerencial IRPJ (${state.params.irpj}%)`,
       val: -c.dre.irpj,
       cls: ''
     }, {
-      label: `(−) CSLL (${state.params.csll}%)`,
+      label: `(−) Provisão gerencial CSLL (${state.params.csll}%)`,
       val: -c.dre.csll,
       cls: ''
     }, {
-      label: 'Lucro líquido',
+      label: 'Resultado após provisões de IRPJ/CSLL',
       val: c.dre.lucroLiq,
       cls: 'final'
     }];
@@ -3356,11 +4925,11 @@ window.aplicarXmlAoProduto = function aplicarXmlAoProduto(produto, selecao, pars
       "aria-live": "polite"
     }, /*#__PURE__*/React.createElement("div", {
       className: "card card-body"
-    }, /*#__PURE__*/React.createElement("span", null, "CMV unit\xE1rio"), /*#__PURE__*/React.createElement("strong", null, brl(c.cmvUn, 4))), /*#__PURE__*/React.createElement("div", {
+    }, /*#__PURE__*/React.createElement("span", null, "CMV unit\xE1rio"), /*#__PURE__*/React.createElement("strong", null, costReady ? brl(c.cmvUn, 4) : 'Custo incompleto')), /*#__PURE__*/React.createElement("div", {
       className: "card card-body"
-    }, /*#__PURE__*/React.createElement("span", null, "Lucro l\xEDquido do pedido"), /*#__PURE__*/React.createElement("strong", null, v.valor > 0 ? brl(c.dre.lucroLiq) : 'Informe o preço de venda')), /*#__PURE__*/React.createElement("div", {
+    }, /*#__PURE__*/React.createElement("span", null, "Resultado gerencial estimado do pedido"), /*#__PURE__*/React.createElement("strong", null, costReady && v.valor > 0 ? brl(c.dre.lucroLiq) : costReady ? 'Informe o preço de venda' : 'Complete o custo no módulo 02')), /*#__PURE__*/React.createElement("div", {
       className: "card card-body"
-    }, /*#__PURE__*/React.createElement("span", null, "Margem l\xEDquida sobre receita bruta"), /*#__PURE__*/React.createElement("strong", null, v.valor > 0 ? pct(c.kpi.margemLiq) : '—'))), cmvZero && /*#__PURE__*/React.createElement("div", {
+    }, /*#__PURE__*/React.createElement("span", null, "Margem gerencial estimada sobre receita bruta"), /*#__PURE__*/React.createElement("strong", null, costReady && v.valor > 0 ? pct(c.kpi.margemLiq) : '—'))), cmvZero && /*#__PURE__*/React.createElement("div", {
       className: "banner banner-warn"
     }, /*#__PURE__*/React.createElement("svg", {
       className: "ico",
@@ -3372,7 +4941,7 @@ window.aplicarXmlAoProduto = function aplicarXmlAoProduto(produto, selecao, pars
       strokeWidth: "1.6"
     }, /*#__PURE__*/React.createElement("path", {
       d: "M10.3 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.7 3.86a2 2 0 00-3.4 0zM12 9v4M12 17h.01"
-    })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("strong", null, "CMV unit\xE1rio = R$ 0,00."), " O produto \"", produto?.nome || '', "\" est\xE1 sem dados de mat\xE9ria-prima ou produ\xE7\xE3o. O lucro abaixo est\xE1 ", /*#__PURE__*/React.createElement("strong", null, "inflado artificialmente"), ". V\xE1 at\xE9 a aba do produto e preencha NF de compra + produ\xE7\xE3o di\xE1ria.")), /*#__PURE__*/React.createElement("div", {
+    })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("strong", null, "CMV unit\xE1rio = R$ 0,00."), " O produto \"", produto?.nome || '', "\" est\xE1 sem dados de mat\xE9ria-prima ou produ\xE7\xE3o. O lucro abaixo est\xE1 ", /*#__PURE__*/React.createElement("strong", null, "inflado artificialmente"), ". V\xE1 at\xE9 a aba do produto e preencha NF de compra + consumo deste pedido.")), /*#__PURE__*/React.createElement("div", {
       className: "card"
     }, /*#__PURE__*/React.createElement("div", {
       className: "card-head"
@@ -3446,7 +5015,7 @@ window.aplicarXmlAoProduto = function aplicarXmlAoProduto(produto, selecao, pars
       className: "field-label"
     }, "CMV unit\xE1rio"), /*#__PURE__*/React.createElement("div", {
       className: "computed positive"
-    }, brl(c.cmvUn, 4))), /*#__PURE__*/React.createElement("div", {
+    }, costReady ? brl(c.cmvUn, 4) : 'Aguardando custo do módulo 02')), /*#__PURE__*/React.createElement("div", {
       className: "field"
     }, /*#__PURE__*/React.createElement("label", {
       className: "field-label"
@@ -3483,7 +5052,13 @@ window.aplicarXmlAoProduto = function aplicarXmlAoProduto(produto, selecao, pars
     }, "UF de destino"), /*#__PURE__*/React.createElement("select", {
       value: v.uf,
       onChange: e => setV({
-        uf: e.target.value
+        uf: e.target.value,
+        fiscal: {
+          ...(v.fiscal || {}),
+          icms: undefined,
+          internal: undefined,
+          confirmed: false
+        }
       })
     }, window.UFS.map(u => /*#__PURE__*/React.createElement("option", {
       key: u[0],
@@ -3493,11 +5068,15 @@ window.aplicarXmlAoProduto = function aplicarXmlAoProduto(produto, selecao, pars
     }, /*#__PURE__*/React.createElement("label", {
       className: "field-label"
     }, "Contribuinte ICMS?", /*#__PURE__*/React.createElement(window.Tooltip, {
-      text: "Se cliente \xE9 contribuinte de ICMS (ind\xFAstria, atacadista, com\xE9rcio), n\xE3o h\xE1 DIFAL para venda interestadual. N\xE3o-contribuinte (consumidor final, PF, ente p\xFAblico) gera DIFAL pelo remetente."
+      text: "Se cliente \xE9 contribuinte de ICMS (ind\xFAstria, atacadista, com\xE9rcio), o DIFAL de uso/consumo pode ser devido pelo destinat\xE1rio; n\xE3o \xE9 apurado como d\xE9bito do remetente neste modelo. N\xE3o-contribuinte (consumidor final, PF, ente p\xFAblico) gera DIFAL pelo remetente."
     })), /*#__PURE__*/React.createElement(window.Segmented, {
       value: v.contrib,
       onChange: val => setV({
-        contrib: val
+        contrib: val,
+        fiscal: {
+          ...(v.fiscal || {}),
+          confirmed: false
+        }
       }),
       options: [{
         value: 'SIM',
@@ -3561,10 +5140,10 @@ window.aplicarXmlAoProduto = function aplicarXmlAoProduto(produto, selecao, pars
     }, /*#__PURE__*/React.createElement("label", {
       className: "field-label"
     }, "DIFAL aplic\xE1vel?", /*#__PURE__*/React.createElement(window.Tooltip, {
-      text: "DIFAL aplic\xE1vel apenas em venda interestadual para n\xE3o-contribuintes (LC 190/2022). Calculado pela base dupla."
+      text: "DIFAL aplic\xE1vel apenas em venda interestadual para n\xE3o-contribuintes (LC 190/2022). Na opera\xE7\xE3o comum, calculado sobre a mesma base do ICMS. Confirme enquadramento e al\xEDquotas."
     })), /*#__PURE__*/React.createElement("div", {
       className: `computed ${c.difalAplicavel ? 'negative' : ''}`
-    }, c.difalAplicavel ? 'Sim' : 'Não'))))), /*#__PURE__*/React.createElement("div", {
+    }, c.difalAplicavel ? 'Sim' : 'Não'))))), costReady && /*#__PURE__*/React.createElement("div", {
       className: "card"
     }, /*#__PURE__*/React.createElement("div", {
       className: "card-head"
@@ -3681,7 +5260,7 @@ window.aplicarXmlAoProduto = function aplicarXmlAoProduto(produto, selecao, pars
       className: "field"
     }, /*#__PURE__*/React.createElement("label", {
       className: "field-label"
-    }, "IRPJ base (%)"), /*#__PURE__*/React.createElement(window.NumInput, {
+    }, "Provis\xE3o gerencial IRPJ (%)"), /*#__PURE__*/React.createElement(window.NumInput, {
       value: params.irpj,
       onChange: n => set({
         irpj: n
@@ -3692,7 +5271,7 @@ window.aplicarXmlAoProduto = function aplicarXmlAoProduto(produto, selecao, pars
       className: "field"
     }, /*#__PURE__*/React.createElement("label", {
       className: "field-label"
-    }, "CSLL (%)"), /*#__PURE__*/React.createElement(window.NumInput, {
+    }, "Provis\xE3o gerencial CSLL (%)"), /*#__PURE__*/React.createElement(window.NumInput, {
       value: params.csll,
       onChange: n => set({
         csll: n
@@ -3755,7 +5334,7 @@ window.aplicarXmlAoProduto = function aplicarXmlAoProduto(produto, selecao, pars
       }
     }, "10% acima de R$ 20k/m\xEAs"), /*#__PURE__*/React.createElement("div", {
       className: "field-hint"
-    }, "n\xE3o aplicado em conta unit\xE1ria"))))));
+    }, "N\xE3o apurado por item. Use a taxa gerencial definida pelo contador considerando o per\xEDodo."))))));
   }
 
   // =====================================================================
@@ -3764,10 +5343,12 @@ window.aplicarXmlAoProduto = function aplicarXmlAoProduto(produto, selecao, pars
 
   window.ParamsView = ParamsView;
 })();
+function _extends() { return _extends = Object.assign ? Object.assign.bind() : function (n) { for (var e = 1; e < arguments.length; e++) { var t = arguments[e]; for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]); } return n; }, _extends.apply(null, arguments); }
 (() => {
   const {
     useState,
-    useMemo
+    useMemo,
+    useEffect
   } = React;
   const INITIAL_SETUP = {
     qty: 28000,
@@ -4036,13 +5617,37 @@ window.aplicarXmlAoProduto = function aplicarXmlAoProduto(produto, selecao, pars
     const [products, setProducts] = useState(() => [freshProduct()]),
       [active, setActive] = useState(0),
       [view, setView] = useState('production'),
-      [tab, setTab] = useState('material'),
       [toast, setToast] = useState(null),
+      [user, setUser] = useState(null),
+      [loginOpen, setLoginOpen] = useState(false),
+      [loading, setLoading] = useState(null),
+      [confirmation, setConfirmation] = useState(null),
       [params, setParams] = useState(window.PARAMS_PADRAO),
       [sale, setSale] = useState(() => ({
         ...window.VENDA_PADRAO(),
         qtd: 28000,
         valor: 0
+      }));
+    useEffect(() => {
+      window.sb.ensureValidSession().then(s => setUser(s?.user || null));
+    }, []);
+    const notify = (msg, kind) => {
+        setToast({
+          msg,
+          kind
+        });
+        setTimeout(() => setToast(null), 4000);
+      },
+      askConfirm = opts => new Promise(resolve => setConfirmation({
+        ...opts,
+        onOk: () => {
+          setConfirmation(null);
+          resolve(true);
+        },
+        onCancel: () => {
+          setConfirmation(null);
+          resolve(false);
+        }
       }));
     const raw = products[active],
       product = window.integrateProduction(raw),
@@ -4060,11 +5665,26 @@ window.aplicarXmlAoProduto = function aplicarXmlAoProduto(produto, selecao, pars
       result = window.calcVenda(selling, product, params),
       validMP = product.nf.kg > 0 && product.nf.valor > 0 && product.prod.mpKg > 0,
       validProduction = product.setup.qty > 0 && Number.isInteger(product.setup.qty) && product.setup.step > 0 && product.setup.speed > 0 && product.setup.beats > 0 && product.setup.setupPrint >= 0 && product.setup.setupCut >= 0,
-      ready = validMP && validProduction;
+      creditFlags = window.mpFiscal(product.nf),
+      hasPurchaseReview = ['pcEligible', 'icmsEligible', 'ipiRecoverable'].every(k => typeof creditFlags[k] === 'boolean') && !(product.nf.simples === 'SIM' && creditFlags.pcEligible && !(Number(creditFlags.pcBase) >= 0)),
+      f = selling.fiscal || {},
+      taxReady = hasPurchaseReview && f.confirmed === true && f.treatment === 'normal' && /^\d{8}$/.test((f.ncm || '').replace(/\D/g, '')) && !!f.purpose && !(selling.contrib === 'NAO' && f.purpose !== 'final'),
+      ready = validMP && validProduction && taxReady;
     return /*#__PURE__*/React.createElement("div", {
       className: "app integrated"
     }, /*#__PURE__*/React.createElement(window.ToastHost, {
       toast: toast
+    }), loading && /*#__PURE__*/React.createElement(window.LoadingOverlay, {
+      text: loading.text
+    }), " ", confirmation && /*#__PURE__*/React.createElement(window.ConfirmModal, _extends({
+      open: true
+    }, confirmation)), " ", loginOpen && /*#__PURE__*/React.createElement(window.LoginModal, {
+      onCancel: () => setLoginOpen(false),
+      onSuccess: () => {
+        setUser(window.sb.getUser());
+        setLoginOpen(false);
+        notify("Conta conectada. Catálogo disponível nos seus aparelhos.", "ok");
+      }
     }), /*#__PURE__*/React.createElement("aside", {
       className: "sidebar"
     }, /*#__PURE__*/React.createElement("div", {
@@ -4079,7 +5699,10 @@ window.aplicarXmlAoProduto = function aplicarXmlAoProduto(produto, selecao, pars
     }, "01 \xB7 Produ\xE7\xE3o"), /*#__PURE__*/React.createElement("button", {
       className: 'nav-item ' + (view === 'margin' ? 'active' : ''),
       onClick: () => setView('margin')
-    }, "02 \xB7 Material e margem"), /*#__PURE__*/React.createElement("div", {
+    }, "02 \xB7 Material e Margem"), /*#__PURE__*/React.createElement("button", {
+      className: "nav-item " + (view === "sale" ? "active" : ""),
+      onClick: () => setView("sale")
+    }, "03 \xB7 Venda e Margem"), /*#__PURE__*/React.createElement("div", {
       className: "nav-section"
     }, "Itens desta sess\xE3o"), products.map((p, i) => /*#__PURE__*/React.createElement("button", {
       className: 'nav-item ' + (i === active ? 'active' : ''),
@@ -4103,17 +5726,38 @@ window.aplicarXmlAoProduto = function aplicarXmlAoProduto(produto, selecao, pars
         setView('production');
       }
     }, "+ Novo item"), /*#__PURE__*/React.createElement("button", {
+      className: "nav-item " + (view === "catalog" ? "active" : ""),
+      onClick: () => setView("catalog")
+    }, "Mat\xE9rias-primas salvas"), /*#__PURE__*/React.createElement("div", {
+      className: "module-note"
+    }, user ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", null, user.email), /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-ghost",
+      onClick: async () => {
+        await window.sb.signOut();
+        setUser(null);
+        setProducts([freshProduct()]);
+        setActive(0);
+        setSale({
+          ...window.VENDA_PADRAO(),
+          valor: 0
+        });
+        setView("production");
+      }
+    }, "Sair da conta")) : /*#__PURE__*/React.createElement("button", {
+      className: "btn",
+      onClick: () => setLoginOpen(true)
+    }, "Entrar para sincronizar MPs")), /*#__PURE__*/React.createElement("button", {
       className: "nav-item",
       onClick: () => setView('params')
     }, "Par\xE2metros de margem"), /*#__PURE__*/React.createElement("p", {
       className: "module-note"
-    }, "Sem login e sem hist\xF3rico. Os dados s\xE3o descartados ao recarregar.")), /*#__PURE__*/React.createElement("div", {
+    }, "Somente as MPs ficam salvas online. Or\xE7amentos e simula\xE7\xF5es s\xE3o descartados ao recarregar.")), /*#__PURE__*/React.createElement("div", {
       className: "main-wrap"
     }, /*#__PURE__*/React.createElement("div", {
       className: "topbar"
     }, /*#__PURE__*/React.createElement("span", {
       className: "topbar-name"
-    }, view === 'production' ? 'Produção' : view === 'margin' ? 'Material e margem' : 'Parâmetros'), /*#__PURE__*/React.createElement("button", {
+    }, view === 'production' ? 'Produção' : view === 'margin' ? 'Material e Margem' : view === 'sale' ? 'Venda e Margem' : view === 'catalog' ? 'Matérias-primas salvas' : 'Parâmetros'), /*#__PURE__*/React.createElement("button", {
       className: "btn btn-ghost",
       onClick: () => {
         const blob = new Blob(['<!doctype html>' + document.documentElement.outerHTML], {
@@ -4155,50 +5799,69 @@ window.aplicarXmlAoProduto = function aplicarXmlAoProduto(produto, selecao, pars
       setProduto: setProduct,
       onNext: () => {
         setView('margin');
-        setTab('material');
       }
-    }), view === 'params' && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
+    }), view === 'catalog' && (user ? /*#__PURE__*/React.createElement(window.MateriasPrimasView, {
+      key: user.id,
+      params: params,
+      onShowToast: notify,
+      askConfirm: askConfirm,
+      setLoading: setLoading,
+      disabled: false
+    }) : /*#__PURE__*/React.createElement("div", {
+      className: "card card-body"
+    }, /*#__PURE__*/React.createElement("h1", null, "Suas mat\xE9rias-primas nos dois aparelhos"), /*#__PURE__*/React.createElement("p", null, "Entre com a mesma conta da calculadora original no computador e no celular para consultar e atualizar o mesmo cat\xE1logo. Somente este cadastro ser\xE1 gravado."), /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-primary",
+      onClick: () => setLoginOpen(true)
+    }, "Entrar na conta do cat\xE1logo"))), view === 'params' && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
       className: "module-note"
-    }, "Par\xE2metros e regras do arquivo recebido. Nenhuma al\xEDquota foi atualizada ou validada fiscalmente nesta integra\xE7\xE3o."), /*#__PURE__*/React.createElement(window.ParamsView, {
+    }, "Al\xEDquotas iniciais do arquivo recebido: conferir NCM, opera\xE7\xE3o e UF. IRPJ/CSLL s\xE3o provis\xF5es gerenciais; a apura\xE7\xE3o definitiva depende do resultado tribut\xE1vel do per\xEDodo."), /*#__PURE__*/React.createElement(window.ParamsView, {
       params: params,
       setParams: setParams
-    })), view === 'margin' && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-      className: "module-tabs"
-    }, /*#__PURE__*/React.createElement("button", {
-      className: 'btn ' + (tab === 'material' ? 'btn-primary' : ''),
-      onClick: () => setTab('material')
-    }, "Material e custo do item"), /*#__PURE__*/React.createElement("button", {
-      className: 'btn ' + (tab === 'sale' ? 'btn-primary' : ''),
-      onClick: () => setTab('sale')
-    }, "Venda e margem")), /*#__PURE__*/React.createElement("p", {
+    })), (view === 'margin' || view === 'sale') && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("p", {
       className: "module-note"
-    }, "Base \xFAnica: ", window.intFmt(product.prod.qtd), " unidades por pedido. Impress\xE3o, corte, liner e cola v\xEAm da Produ\xE7\xE3o uma \xFAnica vez. Energia, deprecia\xE7\xE3o e outros insumos devem ser informados para este pedido."), tab === 'material' ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(window.ProdutoView, {
+    }, "Base \xFAnica: ", window.intFmt(product.prod.qtd), " unidades por pedido. Impress\xE3o, corte, liner e cola v\xEAm da Produ\xE7\xE3o uma \xFAnica vez. Energia, deprecia\xE7\xE3o e outros insumos devem ser informados para este pedido."), view === 'margin' ? /*#__PURE__*/React.createElement(React.Fragment, null, user ? /*#__PURE__*/React.createElement(window.MPSeletor, {
+      key: product.id + user.id,
+      produto: product,
+      setProduto: setProduct,
+      onShowToast: notify
+    }) : /*#__PURE__*/React.createElement("div", {
+      className: "banner banner-info"
+    }, "Para preencher este item com uma MP j\xE1 salva, ", /*#__PURE__*/React.createElement("button", {
+      className: "btn",
+      onClick: () => setLoginOpen(true)
+    }, "entre na conta do cat\xE1logo")), /*#__PURE__*/React.createElement(window.CreditOptions, {
+      nf: product.nf,
+      onChange: nf => setProduct({
+        ...product,
+        nf
+      })
+    }), /*#__PURE__*/React.createElement(window.ProdutoView, {
       produto: product,
       params: params,
       setProduto: setProduct,
-      onShowToast: (msg, kind) => {
-        setToast({
-          msg,
-          kind
-        });
-        setTimeout(() => setToast(null), 4000);
-      }
+      onShowToast: notify
     }), /*#__PURE__*/React.createElement("button", {
       className: "btn btn-primary",
-      onClick: () => setTab('sale')
-    }, "Calcular margem \u2192")) : /*#__PURE__*/React.createElement(React.Fragment, null, !ready ? /*#__PURE__*/React.createElement("div", {
+      onClick: () => setView('sale')
+    }, "Ir para 03 \xB7 Venda e Margem \u2192")) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(window.FiscalReview, {
+      venda: selling,
+      params: params,
+      setVenda: setSale,
+      hasPurchaseReview: hasPurchaseReview
+    }), !ready && /*#__PURE__*/React.createElement("div", {
       className: "banner banner-warn",
       role: "alert"
-    }, !validProduction ? 'Revise os dados do módulo Produção.' : 'Preencha o valor e os kg da nota de compra e o consumo de matéria-prima deste pedido antes de calcular a margem.', /*#__PURE__*/React.createElement("button", {
+    }, !validProduction ? 'Revise os dados do módulo Produção.' : !validMP ? 'Preencha a nota e o consumo de matéria-prima no módulo 02.' : 'Complete a confirmação de créditos da MP e o enquadramento desta operação para liberar a estimativa.', /*#__PURE__*/React.createElement("button", {
       className: "btn",
-      onClick: () => setTab('material')
-    }, "Conferir custo")) : /*#__PURE__*/React.createElement(window.VendaView, {
+      onClick: () => setView('margin')
+    }, "Conferir custo")), /*#__PURE__*/React.createElement(window.VendaView, {
       state: state,
       setState: next => {
         setSale(next.venda);
         setParams(next.params);
       },
-      calc: result
+      calc: result,
+      costReady: ready
     }))))));
   }
   ReactDOM.createRoot(document.getElementById('root')).render(/*#__PURE__*/React.createElement(App, null));
