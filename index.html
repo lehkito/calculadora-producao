@@ -1762,7 +1762,7 @@ window.PARAMS_PADRAO = () => ({
 
 window.VENDA_PADRAO = () => ({
   produtoId: 'prod_espetinho', qtd: 200, valor: 47.00,
-  uf: 'SP', contrib: 'SIM', mkt: 'NAO', comissao: 25.85, ipi: 'NAO',
+  uf: 'SP', contrib: 'SIM', mkt: 'NAO', comissao: 25.85, comissaoFaixa: '1', ipi: 'NAO',
 });
 
 })();
@@ -1873,7 +1873,10 @@ window.calcVenda = (venda, produto, params) => {
   const receitaLiq = receitaBruta - icmsDeb - pisV - cofinsV - difal - fcp;
   const cmvTotal = qtd * cmvUn;
   const lucroBruto = receitaLiq - cmvTotal;
-  const comissao = venda.mkt === 'SIM' ? receitaBruta * (comissaoPct / 100) : 0;
+  const comissaoVendedorPct = venda.comissaoFaixa === '2' ? 2.75 : 1.75;
+  const comissaoVendedor = receitaBruta * comissaoVendedorPct / 100;
+  const comissaoMarketplace = venda.mkt === 'SIM' ? receitaBruta * (comissaoPct / 100) : 0;
+  const comissao = comissaoVendedor + comissaoMarketplace;
   const custosFixos = aplicarFixos ? receitaBruta * aliqFixos : 0;
   const lucroAntesIR = lucroBruto - comissao - custosFixos;
   const irpj = Math.max(lucroAntesIR, 0) * aliqIRPJ;
@@ -1892,7 +1895,7 @@ window.calcVenda = (venda, produto, params) => {
     baseICMS, basePisCofins, baseDifal, isNaoContrib,
     aplicarFixos,
     dre: { valorNota, ipi, receitaBruta, icmsDeb, pis: pisV, cofins: cofinsV, difal, fcp,
-           receitaLiq, cmvTotal, lucroBruto, comissao, custosFixos,
+           receitaLiq, cmvTotal, lucroBruto, comissao, comissaoVendedor, comissaoVendedorPct, comissaoMarketplace, custosFixos,
            lucroAntesIR, irpj, csll, lucroLiq },
     kpi: { tributos, margemBruta, margemLiq, cargaTrib, markup },
   };
@@ -5194,8 +5197,12 @@ window.sb = (() => {
       val: c.dre.lucroBruto,
       cls: 'subtotal'
     }, {
+      label: `(−) Comissão vendedor · Faixa ${v.comissaoFaixa === '2' ? '2' : '1'} (${c.dre.comissaoVendedorPct.toLocaleString('pt-BR')}%)`,
+      val: -c.dre.comissaoVendedor,
+      cls: ''
+    }, {
       label: '(−) Comissão marketplace',
-      val: -c.dre.comissao,
+      val: -c.dre.comissaoMarketplace,
       cls: ''
     }, ...(c.aplicarFixos ? [{
       label: `(−) Rateio de custos fixos (${state.params.fixos}%)`,
@@ -5396,7 +5403,15 @@ window.sb = (() => {
       className: "field"
     }, /*#__PURE__*/React.createElement("label", {
       className: "field-label"
-    }, "Marketplace?", /*#__PURE__*/React.createElement(window.Tooltip, {
+    }, "Comissão do vendedor"), React.createElement("select", {
+      "aria-label": "Faixa de comissão do vendedor",
+      value: v.comissaoFaixa === '2' ? '2' : '1',
+      onChange: e => setV({comissaoFaixa: e.target.value})
+    }, React.createElement("option", {value: "1"}, "Faixa 1 — 1,75%"),
+       React.createElement("option", {value: "2"}, "Faixa 2 — 2,75%")),
+    React.createElement("span", {className: "field-hint"}, "Sobre o valor dos produtos, sem IPI. Descontada no resultado.")),
+    React.createElement("div", {className: "field"},
+    React.createElement("label", {className: "field-label"}, "Marketplace?", /*#__PURE__*/React.createElement(window.Tooltip, {
       text: "Se a venda foi via marketplace, informe a comiss\xE3o para que seja descontada no DRE."
     })), /*#__PURE__*/React.createElement(window.Segmented, {
       value: v.mkt,
