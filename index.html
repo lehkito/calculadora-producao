@@ -6066,7 +6066,7 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
   const newId = () => crypto.randomUUID?.() || Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
   const emptySale = () => ({...window.VENDA_PADRAO(), valor: 0});
 
-  function newQuote(params = window.PARAMS_PADRAO, number = 1) {
+  function newQuote(params = window.PARAMS_PADRAO(), number = 1) {
     const item = freshProduct();
     return {
       id: newId(),
@@ -6082,7 +6082,15 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
   function loadQuotes() {
     try {
       const saved = JSON.parse(localStorage.getItem(QUOTES_KEY) || 'null');
-      if (saved?.quotes?.some(quote => quote.id === saved.currentId && quote.items?.length)) return saved;
+      if (saved?.quotes?.some(quote => quote.id === saved.currentId && quote.items?.length)) {
+        return {
+          ...saved,
+          quotes: saved.quotes.map(quote => ({
+            ...quote,
+            params: {...window.PARAMS_PADRAO(), ...quote.params}
+          }))
+        };
+      }
     } catch (_) {
       // The editor remains usable when browser storage is unavailable.
     }
