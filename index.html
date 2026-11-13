@@ -1477,6 +1477,8 @@ input[type="checkbox"] {accent-color: #1759ac;}
 @media (max-width: 760px) {
   .integrated .topbar {height: auto; min-height: 56px; padding: 8px 14px; gap: 6px; flex-wrap: wrap;}
 }
+.quote-record .card-head small {color: var(--text-3);}
+.quote-record .card-body .field {margin-bottom: 0; min-width: 0;}
 </style></head><body><div id="root"></div><script>/**
  * @license React
  * react.production.min.js
@@ -1810,7 +1812,7 @@ window.PRODUTO_PADRAO = () => ({
 
 window.PARAMS_PADRAO = () => ({
   icmsSp: 18, ipi: 9.75, pis: 1.65, cofins: 7.6,
-  irpj: 15, csll: 9, fixos: 7,
+  irpj: 15, csll: 9, fixos: 20,
   aplicarFixos: true,
 });
 
@@ -5822,7 +5824,7 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
   };
   function freshProduct() {
     const p = window.PRODUTO_PADRAO();
-    p.id = 'item_' + Date.now();
+    p.id = 'item_' + newId();
     p.nome = 'Produto em análise';
     p.nf = {
       valor: 0,
@@ -6060,21 +6062,74 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
       })
     })), /*#__PURE__*/React.createElement("p", null, "Consumo estimado: ", r.bagKg.toLocaleString('pt-BR'), " kg. Sem custo no total: pre\xE7o por kg n\xE3o informado."))))));
   }
+  const QUOTES_KEY = 'calculadora-producao:orcamentos:v1';
+  const newId = () => crypto.randomUUID?.() || Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+  const emptySale = () => ({...window.VENDA_PADRAO(), valor: 0});
+
+  function newQuote(params = window.PARAMS_PADRAO, number = 1) {
+    const item = freshProduct();
+    return {
+      id: newId(),
+      title: 'Orçamento ' + number,
+      updatedAt: Date.now(),
+      items: [item],
+      sales: {},
+      active: 0,
+      params
+    };
+  }
+
+  function loadQuotes() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(QUOTES_KEY) || 'null');
+      if (saved?.quotes?.some(quote => quote.id === saved.currentId && quote.items?.length)) return saved;
+    } catch (_) {
+      // The editor remains usable when browser storage is unavailable.
+    }
+    const first = newQuote();
+    return {currentId: first.id, quotes: [first]};
+  }
+
   function App() {
-    const [products, setProducts] = useState(() => [freshProduct()]),
-      [active, setActive] = useState(0),
+    const [workspace, setWorkspace] = useState(loadQuotes),
+      [storageError, setStorageError] = useState(false),
       [view, setView] = useState('production'),
       [toast, setToast] = useState(null),
       [user, setUser] = useState(null),
       [loginOpen, setLoginOpen] = useState(false),
       [loading, setLoading] = useState(null),
-      [confirmation, setConfirmation] = useState(null),
-      [params, setParams] = useState(window.PARAMS_PADRAO),
-      [sale, setSale] = useState(() => ({
-        ...window.VENDA_PADRAO(),
-        qtd: 28000,
-        valor: 0
-      }));
+      [confirmation, setConfirmation] = useState(null);
+
+    useEffect(() => {
+      try {
+        localStorage.setItem(QUOTES_KEY, JSON.stringify(workspace));
+        setStorageError(false);
+      } catch (_) {
+        setStorageError(true);
+      }
+    }, [workspace]);
+
+    const currentQuote = workspace.quotes.find(quote => quote.id === workspace.currentId);
+    const {items: products, active, params, sales} = currentQuote;
+    const rawItemId = products[active].id;
+    const sale = sales[rawItemId] || emptySale();
+    const updateQuote = update => setWorkspace(previous => ({
+      ...previous,
+      quotes: previous.quotes.map(quote => quote.id === currentQuote.id
+        ? {...quote, ...update(quote), updatedAt: Date.now()}
+        : quote)
+    }));
+    const setSale = next => updateQuote(quote => ({sales: {...quote.sales, [rawItemId]: next}}));
+    const setParams = next => updateQuote(() => ({params: next}));
+    const selectQuote = id => {
+      setWorkspace(previous => ({...previous, currentId: id}));
+      setView('production');
+    };
+    const startQuote = () => {
+      const quote = newQuote(params, workspace.quotes.length + 1);
+      setWorkspace(previous => ({currentId: quote.id, quotes: [quote, ...previous.quotes]}));
+      setView('production');
+    };
     const notify = (msg, kind) => {
         setToast({
           msg,
@@ -6095,7 +6150,7 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
       }));
     const raw = products[active],
       product = window.integrateProduction(raw),
-      setProduct = p => setProducts(ps => ps.map((old, i) => i === active ? p : old));
+      setProduct = p => updateQuote(quote => ({items: quote.items.map(item => item.id === rawItemId ? p : item)}));
     const selling = {
         ...sale,
         produtoId: product.id,
@@ -6155,25 +6210,16 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
       onClick: () => setView("sale")
     }, "03 \xB7 Venda e Margem"), /*#__PURE__*/React.createElement("div", {
       className: "nav-section"
-    }, "Itens desta sess\xE3o"), products.map((p, i) => /*#__PURE__*/React.createElement("button", {
+    }, "Itens do orçamento"), products.map((p, i) => /*#__PURE__*/React.createElement("button", {
       className: 'nav-item ' + (i === active ? 'active' : ''),
       key: p.id,
-      onClick: () => {
-        setActive(i);
-        setSale({
-          ...window.VENDA_PADRAO(),
-          valor: 0
-        });
-      }
-    }, p.nome)), /*#__PURE__*/React.createElement("button", {
+      onClick: () => updateQuote(() => ({active: i}))
+    }, p.nome || 'Item ' + (i + 1))), /*#__PURE__*/React.createElement("button", {
       className: "nav-add",
       onClick: () => {
-        setProducts(p => [...p, freshProduct()]);
-        setActive(products.length);
-        setSale({
-          ...window.VENDA_PADRAO(),
-          valor: 0
-        });
+        const item = freshProduct();
+        item.nome = 'Item ' + (products.length + 1);
+        updateQuote(quote => ({items: [...quote.items, item], active: quote.items.length}));
         setView('production');
       }
     }, "+ Novo item"), /*#__PURE__*/React.createElement("div", {
@@ -6189,7 +6235,7 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
       onClick: () => setView('params')
     }, "Par\xE2metros de margem"), /*#__PURE__*/React.createElement("p", {
       className: "module-note"
-    }, "Somente as MPs ficam salvas neste navegador. Or\xE7amentos e simula\xE7\xF5es s\xE3o descartados ao recarregar.")), /*#__PURE__*/React.createElement("div", {
+    }, storageError ? "Não foi possível salvar. Verifique o armazenamento do navegador." : "Orçamentos salvos automaticamente neste navegador.")), /*#__PURE__*/React.createElement("div", {
       className: "main-wrap"
     }, /*#__PURE__*/React.createElement("div", {
       className: "topbar"
@@ -6210,18 +6256,34 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
       }
     }, "Baixar calculadora"), /*#__PURE__*/React.createElement("button", {
       className: "btn btn-ghost",
-      onClick: () => {
-        setProducts([freshProduct()]);
-        setActive(0);
-        setSale({
-          ...window.VENDA_PADRAO(),
-          valor: 0
-        });
-        setView('production');
-      }
-    }, "Novo or\xE7amento")), /*#__PURE__*/React.createElement("main", {
+      onClick: startQuote
+    }, "Novo orçamento")), /*#__PURE__*/React.createElement("main", {
       className: view === "production" ? "main production-main" : "main"
-    }, /*#__PURE__*/React.createElement("label", {
+    }, React.createElement("section", {className: "card quote-record", key: currentQuote.id},
+      React.createElement("div", {className: "card-head"},
+        React.createElement("strong", null, "Orçamento"),
+        React.createElement("small", {role: "status"}, storageError ? "Salvamento indisponível" : "Salvamento automático")
+      ),
+      React.createElement("div", {className: "card-body grid grid-2"},
+        React.createElement("label", {className: "field"},
+          React.createElement("span", {className: "field-label"}, "Nome do orçamento"),
+          React.createElement("input", {type: "text", maxLength: 120, value: currentQuote.title,
+            onChange: event => {
+              const title = event.target.value;
+              updateQuote(() => ({title}));
+            }})
+        ),
+        React.createElement("label", {className: "field"},
+          React.createElement("span", {className: "field-label"}, "Abrir orçamento salvo"),
+          React.createElement("select", {value: currentQuote.id, onChange: event => selectQuote(event.target.value)},
+            workspace.quotes.map(quote => React.createElement("option", {key: quote.id, value: quote.id},
+              (quote.title.trim() || "Orçamento sem nome") + " · " + quote.items.length + (quote.items.length === 1 ? " item" : " itens")))
+          )
+        )
+      )
+    ), storageError && React.createElement("p", {role: "alert", className: "banner banner-warn"},
+      "O navegador não conseguiu salvar suas alterações. Libere espaço ou habilite o armazenamento antes de fechar a página."
+    ), /*#__PURE__*/React.createElement("label", {
       className: "field"
     }, /*#__PURE__*/React.createElement("span", {
       className: "field-label"
