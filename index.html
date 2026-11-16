@@ -3013,11 +3013,12 @@ window.sb = (() => {
   } : nf?.xmlInfo?.catalogFiscal || {};
   function CreditOptions({
     nf,
-    onChange
+    onChange,
+    fixedCostsEditor
   }) {
     if (nf.xmlInfo?.costSource === 'manual') return /*#__PURE__*/React.createElement("div", {
       className: "banner banner-info"
-    }, "MP sem NF: custo informado, sem cr\xE9ditos tribut\xE1rios nesta simula\xE7\xE3o.");
+    }, "MP sem NF: custo informado, sem cr\xE9ditos tribut\xE1rios nesta simula\xE7\xE3o.", fixedCostsEditor);
     const f = window.mpFiscal(nf),
       set = patch => onChange({
         ...nf,
@@ -3053,7 +3054,7 @@ window.sb = (() => {
       value: "yes"
     }, "Sim"), /*#__PURE__*/React.createElement("option", {
       value: "no"
-    }, "N\xE3o"))))), /*#__PURE__*/React.createElement("p", {
+    }, "N\xE3o"))))), fixedCostsEditor, /*#__PURE__*/React.createElement("p", {
       className: "module-note"
     }, "Ser fornecedor do Simples n\xE3o determina, sozinho, a exist\xEAncia de cr\xE9dito de PIS/COFINS. O ICMS informado deve ser o efetivamente permitido no documento. IPI recuper\xE1vel \xE9 exclu\xEDdo do custo."), nf.simples === 'SIM' && f.pcEligible && /*#__PURE__*/React.createElement("label", {
       className: "field"
@@ -6485,6 +6486,35 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
       })));
   }
 
+  function FixedCostsEditor({params, onApply}) {
+    const [draft, setDraft] = useState(() => String(params.fixos).replace('.', ','));
+    const [error, setError] = useState('');
+    const h = React.createElement;
+    const applied = params.aplicarFixos === false ? 'Desativados' : Number(params.fixos).toLocaleString('pt-BR') + '% aplicado';
+    function submit(event) {
+      event.preventDefault();
+      const input = draft.trim();
+      const value = Number(input.replace(',', '.'));
+      if (!/^\d+(?:[.,]\d+)?$/.test(input) || !Number.isFinite(value) || value > 100) {
+        setError('Digite um percentual de 0 a 100.');
+        return;
+      }
+      onApply({...params, fixos: value, aplicarFixos: true});
+      setError('');
+    }
+    return h('form', {onSubmit: submit},
+      h('label', {className: 'field'},
+        h('span', {className: 'field-label'}, 'Custos fixos (%)'),
+        h('input', {type: 'text', inputMode: 'decimal', value: draft, onChange: event => {
+          setDraft(event.target.value);
+          setError('');
+        }})),
+      h('button', {type: 'submit', className: 'btn btn-primary'}, 'Atualizar custos fixos'),
+      h('p', {className: 'module-note', role: 'status'}, applied + ' neste orçamento.'),
+      error && h('p', {role: 'alert'}, error)
+    );
+  }
+
   function App() {
     const [user, setUser] = useState(null);
     const [checking, setChecking] = useState(true);
@@ -6759,6 +6789,11 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
       onClick: () => setView('newmp')
     }, "+ Criar nova mat\xE9ria-prima e preencher este item"), /*#__PURE__*/React.createElement(window.CreditOptions, {
       nf: product.nf,
+      fixedCostsEditor: React.createElement(FixedCostsEditor, {
+        key: currentQuote.id + ':' + params.fixos + ':' + params.aplicarFixos,
+        params,
+        onApply: setParams
+      }),
       onChange: nf => setProduct({
         ...product,
         nf
