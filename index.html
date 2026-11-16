@@ -1530,6 +1530,15 @@ input[type="checkbox"] {accent-color: #1759ac;}
   border-radius: 8px;
   overflow-wrap: anywhere;
 }
+.quote-list-row {display: flex; align-items: center; gap: 2px; padding-right: 6px;}
+.quote-list-row .quote-list-header {flex: 1; min-width: 0;}
+.quote-delete {
+  flex: 0 0 34px; height: 34px; display: grid; place-items: center;
+  border: 0; border-radius: 6px; background: transparent; color: #a12c3a; cursor: pointer;
+}
+.quote-delete:hover {background: #fce9ec; color: #861c2b;}
+.quote-delete:focus-visible {outline: 2px solid #a12c3a; outline-offset: -2px;}
+.quote-delete:disabled {opacity: .5; cursor: default;}
 .quote-list-header:hover, .quote-item:hover {background: #e9f2fc;}
 .quote-list-header:focus-visible, .quote-item:focus-visible {outline: 2px solid #1759ac; outline-offset: -2px;}
 .quote-list-title {display: grid; gap: 3px; flex: 1; min-width: 0;}
@@ -2516,7 +2525,15 @@ window.sb = (() => {
     });
   }
 
-  return { signIn, signUp, signOut, refresh, ensureValidSession, getSession, getUser,
+  async function deleteQuote(id, revision) {
+    if (!await ensureValidSession()) throw new Error('Entre novamente na sua conta.');
+    return call('/rest/v1/rpc/delete_production_quote', {
+      method: 'POST',
+      body: JSON.stringify({quote_id: id, expected_revision: revision})
+    });
+  }
+
+  return { signIn, signUp, signOut, refresh, ensureValidSession, getSession, getUser, deleteQuote,
            select, insert, update, del, isExpired };
 })();
 })();function _extends() { return _extends = Object.assign ? Object.assign.bind() : function (n) { for (var e = 1; e < arguments.length; e++) { var t = arguments[e]; for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]); } return n; }, _extends.apply(null, arguments); }
@@ -3334,11 +3351,11 @@ window.sb = (() => {
       if (!open) return;
       const onKey = e => {
         if (e.key === 'Escape') onCancel?.();
-        if (e.key === 'Enter') onOk?.();
+        if (e.key === 'Enter' && !danger) onOk?.();
       };
       document.addEventListener('keydown', onKey);
       return () => document.removeEventListener('keydown', onKey);
-    }, [open, onOk, onCancel]);
+    }, [open, onOk, onCancel, danger]);
     if (!open) return null;
     return /*#__PURE__*/React.createElement("div", {
       className: "login-overlay",
@@ -3381,11 +3398,12 @@ window.sb = (() => {
       }
     }, /*#__PURE__*/React.createElement("button", {
       className: "btn btn-ghost",
-      onClick: onCancel
+      onClick: onCancel,
+      autoFocus: danger
     }, cancelLabel), /*#__PURE__*/React.createElement("button", {
       className: `btn ${danger ? 'btn-danger' : 'btn-primary'}`,
       onClick: onOk,
-      autoFocus: true
+      autoFocus: !danger
     }, okLabel))));
   }
   window.ConfirmModal = ConfirmModal;
@@ -6349,6 +6367,24 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
       persist(next);
     }
 
+    async function removeQuote({id, revision}) {
+      if (inFlight.current) return 'busy';
+      inFlight.current = true;
+      setSyncing(true);
+      try {
+        const row = knownRows.current.find(record => record.id === id);
+        if (row && ((revision && row.revision !== revision) || !await window.sb.deleteQuote(id, row.revision))) return 'changed';
+        const remaining = knownRows.current.filter(record => record.id !== id);
+        knownRows.current = remaining;
+        setRows(remaining);
+        openSharedVersion(id);
+        return 'removed';
+      } finally {
+        inFlight.current = false;
+        setSyncing(false);
+      }
+    }
+
     const displayed = new Map(rows.map(row => [row.id, unpackQuote(row)]));
     const conflicts = new Set();
     for (const [id, entry] of Object.entries(pending)) {
@@ -6358,11 +6394,11 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
       displayed.set(id, {...cloudQuote, ...entry.quote, id});
     }
     const quotes = [...displayed.values()].sort((a, b) => (a.seq ?? Infinity) - (b.seq ?? Infinity));
-    return {quotes, pending, conflicts, edit, keepConflictAsCopy, openSharedVersion,
+    return {quotes, pending, conflicts, edit, keepConflictAsCopy, openSharedVersion, removeQuote,
       ready, syncing, syncError, localError, refresh: () => sync(true)};
   }
 
-  function QuotePanel({quotes, currentId, active, shared, onOpen, onNewQuote, onNewItem}) {
+  function QuotePanel({quotes, currentId, active, shared, onOpen, onNewQuote, onNewItem, onDelete}) {
     const h = React.createElement;
     const count = quotes.filter(quote => quote.seq).length;
     const status = shared.syncError ? 'Sincronização indisponível'
@@ -6389,12 +6425,23 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
         const selected = quote.id === currentId;
         const name = quoteName(quote);
         return h('li', {key: quote.id, className: 'quote-list-entry' + (selected ? ' selected' : '')},
+          h('div', {className: 'quote-list-row'},
           h('button', {className: 'quote-list-header', 'aria-expanded': selected,
             onClick: () => onOpen(quote)},
             h('span', {className: 'quote-number'}, quote.seq ? '#' + quote.seq : 'Novo'),
             h('span', {className: 'quote-list-title'}, h('strong', null, name),
               h('small', null, quote.items.length + (quote.items.length === 1 ? ' item' : ' itens'))),
             h('span', {'aria-hidden': true}, selected ? '▾' : '›')),
+          (quote.seq || shared.pending[quote.id]) && h('button', {
+            type: 'button',
+            className: 'quote-delete',
+            'aria-label': 'Excluir ' + (quote.seq ? '#' + quote.seq + ' · ' : '') + name,
+            title: 'Excluir orçamento',
+            disabled: shared.syncing,
+            onClick: () => onDelete(quote)
+          }, h('svg', {width: 17, height: 17, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
+            strokeWidth: 1.75, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true},
+            h('path', {d: 'M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6m4-6v6'})))),
           selected && h('div', {className: 'quote-list-content'},
             h('ol', {className: 'quote-items'}, quote.items.map((item, index) =>
               h('li', {key: item.id},
@@ -6435,7 +6482,7 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
   }
 
   function QuoteApp({userId, signOut}) {
-    const [draft] = useState(() => newQuote());
+    const [draft, setDraft] = useState(() => newQuote());
     const [selection, setSelection] = useState({id: '', item: 0});
     const [view, setView] = useState('production');
     const [toast, setToast] = useState(null);
@@ -6450,7 +6497,8 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
     const sale = sales[rawItemId] || emptySale();
     const updateQuote = patch => {
       shared.edit(currentQuote, patch);
-      if (currentQuote.id === draft.id && selection.id !== draft.id) {
+      if (currentQuote.id === draft.id) {
+        setDraft(newQuote(params));
         setSelection({id: draft.id, item: 0});
       }
     };
@@ -6492,6 +6540,29 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
           resolve(false);
         }
       }));
+    async function deleteQuote(quote) {
+      const confirmed = await askConfirm({
+        title: 'Excluir orçamento?',
+        message: '“' + quoteName(quote) + '” e seus itens serão excluídos da lista de todos os gerentes.',
+        okLabel: 'Excluir orçamento',
+        danger: true
+      });
+      if (!confirmed) return;
+      try {
+        const result = await shared.removeQuote(quote);
+        if (result === 'busy') {
+          notify('Aguarde a sincronização para excluir o orçamento.', 'err');
+        } else if (result === 'changed') {
+          shared.refresh();
+          notify('O orçamento foi atualizado. Confira a versão atual antes de excluir.', 'err');
+        } else {
+          notify('Orçamento excluído.', 'ok');
+        }
+      } catch (_) {
+        notify('Não foi possível excluir o orçamento. Verifique a conexão e tente novamente.', 'err');
+      }
+    }
+
     const raw = products[active],
       product = window.integrateProduction(raw),
       setProduct = p => updateQuote(quote => ({items: quote.items.map(item => item.id === rawItemId ? p : item)}));
@@ -6690,7 +6761,7 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
       taxReady: taxReady
     })))), h(QuotePanel, {
       quotes, currentId: currentQuote.id, active, shared,
-      onOpen: openQuote, onNewQuote: startQuote, onNewItem: addItem
+      onOpen: openQuote, onNewQuote: startQuote, onNewItem: addItem, onDelete: deleteQuote
     }))));
   }
   ReactDOM.createRoot(document.getElementById('root')).render(/*#__PURE__*/React.createElement(App, null));
