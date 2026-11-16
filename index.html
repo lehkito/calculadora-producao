@@ -1477,8 +1477,81 @@ input[type="checkbox"] {accent-color: #1759ac;}
 @media (max-width: 760px) {
   .integrated .topbar {height: auto; min-height: 56px; padding: 8px 14px; gap: 6px; flex-wrap: wrap;}
 }
-.quote-record .card-head small {color: var(--text-3);}
+.integrated .main-wrap, .integrated .main-wrap:has(.production-main) {overflow: visible;}
+.quote-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  align-items: start;
+  gap: 24px;
+  padding: 24px 28px 60px;
+  width: 100%;
+  max-width: 1680px;
+  margin-inline: auto;
+}
+.integrated .quote-workspace .main {padding: 0; min-width: 0; max-width: none;}
 .quote-record .card-body .field {margin-bottom: 0; min-width: 0;}
+.quote-panel {
+  position: sticky;
+  top: calc(var(--topbar-h) + 24px);
+  max-height: calc(100dvh - var(--topbar-h) - 48px);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.quote-panel-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 16px 14px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.quote-panel h2 {font-size: 16px; margin: 0;}
+.quote-panel-head small {grid-column: 1 / -1; color: var(--text-2);}
+.quote-panel-head .btn {grid-column: 1 / -1; justify-content: center;}
+.quote-count, .quote-list-title small {font-size: 12px; color: var(--text-2);}
+.quote-list, .quote-items {list-style: none; margin: 0; padding: 0;}
+.quote-list {padding: 10px; overflow: auto; overscroll-behavior: contain;}
+.quote-list-entry {border: 1px solid var(--border-soft); border-radius: 10px; margin-bottom: 8px;}
+.quote-list-entry:last-child {margin-bottom: 0;}
+.quote-list-entry.selected {border-color: #abc8e7; background: #f5f9ff;}
+.quote-list-header, .quote-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  text-align: left;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  padding: 10px;
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.quote-list-header:hover, .quote-item:hover {background: #e9f2fc;}
+.quote-list-header:focus-visible, .quote-item:focus-visible {outline: 2px solid #1759ac; outline-offset: -2px;}
+.quote-list-title {display: grid; gap: 3px; flex: 1; min-width: 0;}
+.quote-number, .quote-item-number {
+  flex: none; color: #234e7a; background: #e7f0fa;
+  padding: 3px 6px; border-radius: 6px; font-size: 11px; font-weight: 600;
+}
+.quote-list-content {padding: 0 8px 8px;}
+.quote-item[aria-current="true"] {background: #dceafb; color: #133c68; font-weight: 600;}
+.quote-add-item {margin-top: 7px; width: 100%; justify-content: center;}
+.quote-sync-gate {max-width: 480px; margin: 40px auto; padding: 20px;}
+.quote-conflict .btn {margin: 4px 8px 4px 0;}
+@media (min-width: 881px) and (max-width: 1380px) {
+  .quote-workspace {grid-template-columns: minmax(0, 1fr) minmax(250px, 290px); gap: 16px; padding-inline: 18px;}
+  .quote-workspace .production-layout, .quote-workspace .sales-layout {grid-template-columns: minmax(0, 1fr);}
+  .quote-workspace .production-summary, .quote-workspace .sales-results {grid-area: auto; position: static;}
+}
+@media (max-width: 880px) {
+  .integrated .sidebar {display: flex;}
+  .quote-workspace {grid-template-columns: minmax(0, 1fr); padding: 16px; gap: 16px;}
+  .quote-panel {grid-row: 1; position: static; max-height: min(55dvh, 380px);}
+}
 </style></head><body><div id="root"></div><script>/**
  * @license React
  * react.production.min.js
@@ -2298,8 +2371,8 @@ window.aplicarXmlAoProduto = function aplicarXmlAoProduto(produto, selecao, pars
 // =====================================================================
 
 window.SUPABASE_CONFIG = {
-  url:     'https://yxjrgyrtmhlqlpmpgifk.supabase.co',
-  anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl4anJneXJ0bWhscWxwbXBnaWZrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk1NzcyMTksImV4cCI6MjA5NTE1MzIxOX0.YlWH6U1518JXjWLIBPnK7nPVl0W0rYn0FRf85HYXAkA',
+  url:     'https://gnnlhovyeozlvqmxdtxs.supabase.co',
+  anonKey: 'sb_publishable_iA2Z6bMnvxYuq40eilvrhA_6kTqMjag',
 };
 
 window.SUPABASE_CONFIGURED =
@@ -2307,7 +2380,7 @@ window.SUPABASE_CONFIGURED =
   !window.SUPABASE_CONFIG.anonKey.startsWith('__');
 
 window.sb = (() => {
-  const AUTH_KEY = 'mp_catalog_session_v1';
+  const AUTH_KEY = 'production_catalog_session_v2';
 
   function getSession() {
     try {
@@ -2356,12 +2429,26 @@ window.sb = (() => {
     return data;
   }
 
+  async function signUp(email, password) {
+    await call('/auth/v1/signup?redirect_to=' + encodeURIComponent(new URL('./', location.href).href), {
+      method: 'POST',
+      body: JSON.stringify({email, password})
+    });
+  }
   async function signIn(email, password) {
     const data = await call('/auth/v1/token?grant_type=password', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
     setSession(data);
+    try {
+      if (!(await select('production_catalog_members', 'select=user_id&limit=1')).length) {
+        throw new Error('Esta conta não está autorizada na Calculadora de Produção.');
+      }
+    } catch (error) {
+      setSession(null);
+      throw error;
+    }
     return data;
   }
   async function refresh() {
@@ -2392,39 +2479,36 @@ window.sb = (() => {
   }
 
   async function select(table, query = '', opts = {}) {
-    if (table !== 'materias_primas') throw new Error('Somente o catálogo de MPs pode ser salvo.');
-    if (!await ensureValidSession()) throw new Error('Entre na sua conta para acessar as MPs.');
-    await ensureValidSession();
-    const profile = opts.schema || atob('YWdlbmZsZXg=');
+    if (!['production_catalog_materials', 'production_catalog_members', 'production_quotes'].includes(table)) throw new Error('Tabela indisponível.');
+    if (!await ensureValidSession()) throw new Error('Entre na sua conta para continuar.');
+    const profile = opts.schema || 'public';
     const url = `/rest/v1/${table}${query ? '?' + query : ''}`;
     return call(url, { method: 'GET', headers: { 'Accept-Profile': profile } });
   }
   async function insert(table, payload, opts = {}) {
-    if (table !== 'materias_primas') throw new Error('Somente o catálogo de MPs pode ser salvo.');
-    if (!await ensureValidSession()) throw new Error('Entre na sua conta para acessar as MPs.');
-    await ensureValidSession();
-    const profile = opts.schema || atob('YWdlbmZsZXg=');
-    return call(`/rest/v1/${table}`, {
+    if (!['production_catalog_materials', 'production_catalog_members', 'production_quotes'].includes(table)) throw new Error('Tabela indisponível.');
+    if (!await ensureValidSession()) throw new Error('Entre na sua conta para continuar.');
+    const profile = opts.schema || 'public';
+    const path = `/rest/v1/${table}` + (opts.ignoreDuplicates ? "?on_conflict=id" : "");
+    return call(path, {
       method: 'POST',
-      headers: { 'Content-Profile': profile, 'Prefer': 'return=representation' },
+      headers: { 'Content-Profile': profile, 'Prefer': opts.ignoreDuplicates ? 'resolution=ignore-duplicates,return=representation' : 'return=representation' },
       body: JSON.stringify(Array.isArray(payload) ? payload : [payload]),
     });
   }
   async function del(table, query, opts = {}) {
-    if (table !== 'materias_primas') throw new Error('Somente o catálogo de MPs pode ser salvo.');
-    if (!await ensureValidSession()) throw new Error('Entre na sua conta para acessar as MPs.');
-    await ensureValidSession();
-    const profile = opts.schema || atob('YWdlbmZsZXg=');
+    if (!['production_catalog_materials', 'production_catalog_members', 'production_quotes'].includes(table)) throw new Error('Tabela indisponível.');
+    if (!await ensureValidSession()) throw new Error('Entre na sua conta para continuar.');
+    const profile = opts.schema || 'public';
     return call(`/rest/v1/${table}?${query}`, {
       method: 'DELETE',
       headers: { 'Content-Profile': profile, 'Prefer': 'return=representation' },
     });
   }
   async function update(table, query, patch, opts = {}) {
-    if (table !== 'materias_primas') throw new Error('Somente o catálogo de MPs pode ser salvo.');
-    if (!await ensureValidSession()) throw new Error('Entre na sua conta para acessar as MPs.');
-    await ensureValidSession();
-    const profile = opts.schema || atob('YWdlbmZsZXg=');
+    if (!['production_catalog_materials', 'production_catalog_members', 'production_quotes'].includes(table)) throw new Error('Tabela indisponível.');
+    if (!await ensureValidSession()) throw new Error('Entre na sua conta para continuar.');
+    const profile = opts.schema || 'public';
     return call(`/rest/v1/${table}?${query}`, {
       method: 'PATCH',
       headers: { 'Content-Profile': profile, 'Prefer': 'return=representation' },
@@ -2432,7 +2516,7 @@ window.sb = (() => {
     });
   }
 
-  return { signIn, signOut, refresh, ensureValidSession, getSession, getUser,
+  return { signIn, signUp, signOut, refresh, ensureValidSession, getSession, getUser,
            select, insert, update, del, isExpired };
 })();
 })();function _extends() { return _extends = Object.assign ? Object.assign.bind() : function (n) { for (var e = 1; e < arguments.length; e++) { var t = arguments[e]; for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]); } return n; }, _extends.apply(null, arguments); }
@@ -3122,6 +3206,8 @@ window.sb = (() => {
     const [password, setPassword] = useState('');
     const [err, setErr] = useState('');
     const [busy, setBusy] = useState(false);
+    const [firstAccess, setFirstAccess] = useState(false);
+    const [notice, setNotice] = useState('');
     const emailRef = useRef(null);
     useEffect(() => {
       setTimeout(() => emailRef.current?.focus(), 100);
@@ -3132,9 +3218,22 @@ window.sb = (() => {
         return;
       }
       setErr('');
+      setNotice('');
+      if (firstAccess && password.length < 12) {
+        setErr('Crie uma senha com pelo menos 12 caracteres.');
+        return;
+      }
       setBusy(true);
       try {
-        await window.sb.signIn(email, password);
+        const address = email.trim().toLowerCase();
+        if (firstAccess) {
+          await window.sb.signUp(address, password);
+          setPassword('');
+          setFirstAccess(false);
+          setNotice('Confira a confirmação no seu e-mail. Depois, volte a esta tela para entrar.');
+          return;
+        }
+        await window.sb.signIn(address, password);
         setPassword('');
         onSuccess();
       } catch (e) {
@@ -3158,7 +3257,7 @@ window.sb = (() => {
       className: "login-title"
     }, "Cat\xE1logo de mat\xE9rias-primas"), /*#__PURE__*/React.createElement("div", {
       className: "login-sub"
-    }, "Mesma conta no computador e celular"))), /*#__PURE__*/React.createElement("div", {
+    }, "Entre com a sua conta autorizada"))), /*#__PURE__*/React.createElement("div", {
       className: "login-body"
     }, /*#__PURE__*/React.createElement("div", {
       className: "field"
@@ -3182,26 +3281,23 @@ window.sb = (() => {
     }, "Senha"), /*#__PURE__*/React.createElement("input", {
       id: "catalog-password",
       type: "password",
-      autoComplete: "current-password",
+      autoComplete: firstAccess ? "new-password" : "current-password",
       value: password,
       onChange: e => setPassword(e.target.value),
       onKeyDown: onKey,
       placeholder: "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
     })), err && /*#__PURE__*/React.createElement("div", {
       className: "login-error"
-    }, err)), /*#__PURE__*/React.createElement("div", {
+    }, err), notice && React.createElement("p", {role: "status"}, notice), React.createElement("button", {type: "button", className: "btn btn-ghost", disabled: busy, onClick: () => {setFirstAccess(!firstAccess); setErr(""); setNotice("");}}, firstAccess ? "Já tenho conta" : "Primeiro acesso")), /*#__PURE__*/React.createElement("div", {
       className: "login-foot"
-    }, /*#__PURE__*/React.createElement("button", {
-      className: "btn btn-ghost",
-      onClick: onCancel
-    }, "Voltar"), /*#__PURE__*/React.createElement("button", {
+    }, onCancel && React.createElement("button", {className: "btn btn-ghost", onClick: onCancel}, "Voltar"), /*#__PURE__*/React.createElement("button", {
       className: "btn btn-primary btn-lg",
       onClick: submit,
       disabled: busy,
       style: {
         width: '100%'
       }
-    }, busy ? 'Entrando…' : 'Entrar'))));
+    }, busy ? 'Aguarde…' : firstAccess ? 'Criar conta' : 'Entrar'))));
   }
   window.LoginModal = LoginModal;
 
@@ -6063,79 +6159,319 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
     })), /*#__PURE__*/React.createElement("p", null, "Consumo estimado: ", r.bagKg.toLocaleString('pt-BR'), " kg. Sem custo no total: pre\xE7o por kg n\xE3o informado."))))));
   }
   const QUOTES_KEY = 'calculadora-producao:orcamentos:v1';
-  const newId = () => crypto.randomUUID?.() || Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+  const QUOTE_TABLE = 'production_quotes';
+  const newId = () => crypto.randomUUID();
   const emptySale = () => ({...window.VENDA_PADRAO(), valor: 0});
 
-  function newQuote(params = window.PARAMS_PADRAO(), number = 1) {
-    const item = freshProduct();
+  function newQuote(params = window.PARAMS_PADRAO()) {
+    return {id: newId(), title: '', items: [freshProduct()], sales: {}, params};
+  }
+
+  function readQuoteStorage(key, fallback) {
+    try { return JSON.parse(localStorage.getItem(key)) ?? fallback; }
+    catch (_) { return fallback; }
+  }
+
+  function normalizeQuote(quote) {
     return {
-      id: newId(),
-      title: 'Orçamento ' + number,
-      updatedAt: Date.now(),
-      items: [item],
-      sales: {},
-      active: 0,
-      params
+      ...quote,
+      title: (typeof quote.title === 'string' ? quote.title : '').slice(0, 120),
+      params: {...window.PARAMS_PADRAO(), ...quote.params},
+      sales: quote.sales || {}
     };
   }
 
-  function loadQuotes() {
-    try {
-      const saved = JSON.parse(localStorage.getItem(QUOTES_KEY) || 'null');
-      if (saved?.quotes?.some(quote => quote.id === saved.currentId && quote.items?.length)) {
-        return {
-          ...saved,
-          quotes: saved.quotes.map(quote => ({
-            ...quote,
-            params: {...window.PARAMS_PADRAO(), ...quote.params}
-          }))
-        };
-      }
-    } catch (_) {
-      // The editor remains usable when browser storage is unavailable.
+  function unpackQuote(row) {
+    return {...normalizeQuote(row.payload), id: row.id, seq: row.seq, revision: row.revision};
+  }
+
+  function quoteName(quote) {
+    return quote.title.trim() || (quote.seq ? 'Orçamento ' + quote.seq : 'Novo orçamento');
+  }
+
+  async function fetchQuotes() {
+    const rows = [];
+    let lastNumber = 0;
+    for (;;) {
+      const page = await window.sb.select(QUOTE_TABLE, 'seq=gt.' + lastNumber + '&order=seq.asc&limit=200');
+      rows.push(...page);
+      if (page.length < 200) return rows;
+      lastNumber = page[page.length - 1].seq;
     }
-    const first = newQuote();
-    return {currentId: first.id, quotes: [first]};
+  }
+
+  function mergeQuoteRows(rows, incoming) {
+    const byId = new Map(rows.map(row => [row.id, row]));
+    incoming.forEach(row => byId.set(row.id, row));
+    return [...byId.values()];
+  }
+
+  function useSharedQuotes(userId) {
+    const outboxKey = QUOTES_KEY + ':pendentes:' + userId;
+    const importedKey = QUOTES_KEY + ':importado';
+    const outbox = React.useRef(readQuoteStorage(outboxKey, {}));
+    const knownRows = React.useRef([]);
+    const inFlight = React.useRef(false);
+    const [rows, setRows] = useState([]);
+    const [pending, setPending] = useState(outbox.current);
+    const [ready, setReady] = useState(false);
+    const [syncing, setSyncing] = useState(false);
+    const [syncError, setSyncError] = useState(false);
+    const [localError, setLocalError] = useState(false);
+
+    function persist(next) {
+      outbox.current = next;
+      setPending(next);
+      try {
+        localStorage.setItem(outboxKey, JSON.stringify(next));
+        setLocalError(false);
+      } catch (_) {
+        setLocalError(true);
+      }
+    }
+
+    async function sync(shouldRefresh = false) {
+      if (inFlight.current || (!shouldRefresh && !Object.keys(outbox.current).length)) return;
+      inFlight.current = true;
+      setSyncing(true);
+      try {
+        let remote = shouldRefresh ? await fetchQuotes() : knownRows.current;
+        const legacy = shouldRefresh && !readQuoteStorage(importedKey, false)
+          ? readQuoteStorage(QUOTES_KEY, {}).quotes : null;
+        if (Array.isArray(legacy)) {
+          const ids = new Set(remote.map(row => row.id));
+          const quotesToImport = legacy.filter(quote => quote?.items?.length
+            && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(quote.id)
+            && !ids.has(quote.id))
+            .sort((a, b) => (a.title?.match(/^Orçamento (\d+)$/)?.[1] || 0)
+              - (b.title?.match(/^Orçamento (\d+)$/)?.[1] || 0) || a.updatedAt - b.updatedAt);
+          for (const quote of quotesToImport) {
+            const inserted = await window.sb.insert(QUOTE_TABLE, {
+              id: quote.id, revision: crypto.randomUUID(), payload: normalizeQuote(quote)
+            }, {ignoreDuplicates: true});
+            remote = mergeQuoteRows(remote, inserted);
+          }
+          try { localStorage.setItem(importedKey, 'true'); } catch (_) { /* IDs prevent duplicate imports. */ }
+        }
+        if (shouldRefresh) {
+          knownRows.current = remote;
+          setRows(remote);
+          setReady(true);
+        }
+
+        for (const [id, entry] of Object.entries(outbox.current)) {
+          const current = remote.find(row => row.id === id);
+          let saved = current?.revision === entry.revision ? current : null;
+          if (!saved && (current?.revision || null) === entry.base) {
+            const data = {revision: entry.revision, payload: entry.quote};
+            const filter = 'id=eq.' + id + '&revision=eq.' + entry.base;
+            const result = entry.base
+              ? await window.sb.update(QUOTE_TABLE, filter, data)
+              : await window.sb.insert(QUOTE_TABLE, {id, ...data}, {ignoreDuplicates: true});
+            saved = result[0];
+            if (!saved) {
+              remote = await fetchQuotes();
+              saved = remote.find(row => row.id === id && row.revision === entry.revision);
+            }
+          }
+          if (saved) {
+            remote = mergeQuoteRows(remote, [saved]);
+            knownRows.current = remote;
+            setRows(remote);
+            const next = {...outbox.current};
+            if (next[id]?.revision === entry.revision) delete next[id];
+            else if (next[id]) next[id] = {...next[id], base: saved.revision};
+            persist(next);
+          }
+        }
+        knownRows.current = remote;
+        setRows(remote);
+        setSyncError(false);
+      } catch (_) {
+        setSyncError(true);
+      } finally {
+        inFlight.current = false;
+        setSyncing(false);
+      }
+    }
+
+    useEffect(() => {
+      sync(true);
+      const refresh = () => { if (!document.hidden) sync(true); };
+      const interval = setInterval(refresh, 15000);
+      window.addEventListener('focus', refresh);
+      window.addEventListener('online', refresh);
+      return () => {
+        clearInterval(interval);
+        window.removeEventListener('focus', refresh);
+        window.removeEventListener('online', refresh);
+      };
+    }, []);
+
+    useEffect(() => {
+      if (ready && !syncing && !syncError && Object.keys(pending).length) {
+        const dirty = Object.entries(pending).some(([id, entry]) => {
+          const revision = rows.find(row => row.id === id)?.revision || null;
+          return revision === entry.base || revision === entry.revision;
+        });
+        if (dirty) {
+          const timeout = setTimeout(() => sync(), 450);
+          return () => clearTimeout(timeout);
+        }
+      }
+    }, [ready, pending, syncing, syncError, rows]);
+
+    function edit(quote, patch) {
+      const existing = outbox.current[quote.id];
+      const latest = existing ? {...quote, ...existing.quote} : quote;
+      const {id, seq, revision, ...payload} = {...latest, ...patch(latest)};
+      persist({...outbox.current, [id]: {
+        base: existing ? existing.base : revision || null,
+        revision: crypto.randomUUID(),
+        quote: payload
+      }});
+    }
+
+    function keepConflictAsCopy(quote) {
+      const next = {...outbox.current};
+      delete next[quote.id];
+      const {id, seq, revision, ...payload} = quote;
+      const copyId = crypto.randomUUID();
+      const title = quoteName(quote).slice(0, 111) + ' (cópia)';
+      next[copyId] = {base: null, revision: crypto.randomUUID(), quote: {...payload, title}};
+      persist(next);
+      return copyId;
+    }
+
+    function openSharedVersion(id) {
+      const next = {...outbox.current};
+      delete next[id];
+      persist(next);
+    }
+
+    const displayed = new Map(rows.map(row => [row.id, unpackQuote(row)]));
+    const conflicts = new Set();
+    for (const [id, entry] of Object.entries(pending)) {
+      const cloudQuote = displayed.get(id);
+      const revision = cloudQuote?.revision || null;
+      if (revision !== entry.base && revision !== entry.revision) conflicts.add(id);
+      displayed.set(id, {...cloudQuote, ...entry.quote, id});
+    }
+    const quotes = [...displayed.values()].sort((a, b) => (a.seq ?? Infinity) - (b.seq ?? Infinity));
+    return {quotes, pending, conflicts, edit, keepConflictAsCopy, openSharedVersion,
+      ready, syncing, syncError, localError, refresh: () => sync(true)};
+  }
+
+  function QuotePanel({quotes, currentId, active, shared, onOpen, onNewQuote, onNewItem}) {
+    const h = React.createElement;
+    const count = quotes.filter(quote => quote.seq).length;
+    const status = shared.syncError ? 'Sincronização indisponível'
+      : shared.conflicts.size ? 'Há alterações para revisar'
+      : Object.keys(shared.pending).length ? 'Salvando…' : 'Salvamento automático';
+    const list = React.useRef(null);
+    useEffect(() => {
+      const scroll = list.current;
+      const selected = scroll?.querySelector('.quote-item[aria-current]') || scroll?.querySelector('.selected');
+      if (!selected) return;
+      const item = selected.getBoundingClientRect();
+      const frame = scroll.getBoundingClientRect();
+      if (item.bottom > frame.bottom) scroll.scrollTop += item.bottom - frame.bottom + 8;
+      else if (item.top < frame.top) scroll.scrollTop -= frame.top - item.top + 8;
+    }, [currentId, active, count]);
+    return h('aside', {className: 'quote-panel card', 'aria-labelledby': 'quotes-heading'},
+      h('header', {className: 'quote-panel-head'},
+        h('h2', {id: 'quotes-heading'}, 'Orçamentos'),
+        h('span', {className: 'quote-count'}, count + (count === 1 ? ' salvo' : ' salvos')),
+        h('small', {role: 'status'}, status),
+        h('button', {className: 'btn btn-primary', onClick: onNewQuote}, '+ Novo orçamento'),
+        shared.syncError && h('button', {className: 'btn', onClick: shared.refresh}, 'Tentar sincronizar')),
+      h('ol', {className: 'quote-list', ref: list}, quotes.map(quote => {
+        const selected = quote.id === currentId;
+        const name = quoteName(quote);
+        return h('li', {key: quote.id, className: 'quote-list-entry' + (selected ? ' selected' : '')},
+          h('button', {className: 'quote-list-header', 'aria-expanded': selected,
+            onClick: () => onOpen(quote)},
+            h('span', {className: 'quote-number'}, quote.seq ? '#' + quote.seq : 'Novo'),
+            h('span', {className: 'quote-list-title'}, h('strong', null, name),
+              h('small', null, quote.items.length + (quote.items.length === 1 ? ' item' : ' itens'))),
+            h('span', {'aria-hidden': true}, selected ? '▾' : '›')),
+          selected && h('div', {className: 'quote-list-content'},
+            h('ol', {className: 'quote-items'}, quote.items.map((item, index) =>
+              h('li', {key: item.id},
+                h('button', {className: 'quote-item', 'aria-current': index === active ? 'true' : undefined,
+                  onClick: () => onOpen(quote, index)},
+                  h('span', {className: 'quote-item-number'}, index + 1),
+                  h('span', null, item.nome?.trim() || 'Item ' + (index + 1)))))),
+            h('button', {className: 'btn quote-add-item', onClick: onNewItem}, '+ Novo item')));
+      })));
   }
 
   function App() {
-    const [workspace, setWorkspace] = useState(loadQuotes),
-      [storageError, setStorageError] = useState(false),
-      [view, setView] = useState('production'),
-      [toast, setToast] = useState(null),
-      [user, setUser] = useState(null),
-      [loginOpen, setLoginOpen] = useState(false),
-      [loading, setLoading] = useState(null),
-      [confirmation, setConfirmation] = useState(null);
-
+    const [user, setUser] = useState(null);
+    const [checking, setChecking] = useState(true);
     useEffect(() => {
-      try {
-        localStorage.setItem(QUOTES_KEY, JSON.stringify(workspace));
-        setStorageError(false);
-      } catch (_) {
-        setStorageError(true);
-      }
-    }, [workspace]);
+      let mounted = true;
+      (async () => {
+        try {
+          const session = await window.sb.ensureValidSession();
+          if (session && (await window.sb.select('production_catalog_members', 'select=user_id&limit=1')).length && mounted) {
+            setUser(session.user);
+          }
+        } catch (_) {
+          // Keep the calculator behind sign-in if access cannot be verified.
+        } finally {
+          if (mounted) setChecking(false);
+        }
+      })();
+      return () => { mounted = false; };
+    }, []);
+    if (checking) return React.createElement('p', {role: 'status', className: 'quote-sync-gate'}, 'Conferindo acesso…');
+    if (!user) return React.createElement(window.LoginModal, {onSuccess: () => setUser(window.sb.getUser())});
+    async function signOut() {
+      await window.sb.signOut();
+      setUser(null);
+    }
+    return React.createElement(QuoteApp, {key: user.id, userId: user.id, signOut});
+  }
 
-    const currentQuote = workspace.quotes.find(quote => quote.id === workspace.currentId);
-    const {items: products, active, params, sales} = currentQuote;
+  function QuoteApp({userId, signOut}) {
+    const [draft] = useState(() => newQuote());
+    const [selection, setSelection] = useState({id: '', item: 0});
+    const [view, setView] = useState('production');
+    const [toast, setToast] = useState(null);
+    const [loading, setLoading] = useState(null);
+    const [confirmation, setConfirmation] = useState(null);
+    const shared = useSharedQuotes(userId);
+    const quotes = shared.quotes.length ? shared.quotes : [draft];
+    const currentQuote = quotes.find(quote => quote.id === selection.id) || quotes[0];
+    const {items: products, params, sales} = currentQuote;
+    const active = selection.id === currentQuote.id && products[selection.item] ? selection.item : 0;
     const rawItemId = products[active].id;
     const sale = sales[rawItemId] || emptySale();
-    const updateQuote = update => setWorkspace(previous => ({
-      ...previous,
-      quotes: previous.quotes.map(quote => quote.id === currentQuote.id
-        ? {...quote, ...update(quote), updatedAt: Date.now()}
-        : quote)
-    }));
-    const setSale = next => updateQuote(quote => ({sales: {...quote.sales, [rawItemId]: next}}));
+    const updateQuote = patch => {
+      shared.edit(currentQuote, patch);
+      if (currentQuote.id === draft.id && selection.id !== draft.id) {
+        setSelection({id: draft.id, item: 0});
+      }
+    };
     const setParams = next => updateQuote(() => ({params: next}));
-    const selectQuote = id => {
-      setWorkspace(previous => ({...previous, currentId: id}));
-      setView('production');
+    const setSale = next => updateQuote(quote => ({sales: {...quote.sales, [rawItemId]: next}}));
+    const openQuote = (quote, item = 0) => {
+      if (quote.id !== currentQuote.id || (view !== 'production' && view !== 'margin' && view !== 'sale')) setView('production');
+      setSelection({id: quote.id, item});
     };
     const startQuote = () => {
-      const quote = newQuote(params, workspace.quotes.length + 1);
-      setWorkspace(previous => ({currentId: quote.id, quotes: [quote, ...previous.quotes]}));
+      const quote = newQuote(params);
+      shared.edit(quote, () => ({}));
+      setSelection({id: quote.id, item: 0});
+      setView('production');
+    };
+    const addItem = () => {
+      const item = freshProduct();
+      updateQuote(quote => ({
+        items: [...quote.items, {...item, nome: 'Item ' + (quote.items.length + 1)}]
+      }));
+      setSelection({id: currentQuote.id, item: products.length});
       setView('production');
     };
     const notify = (msg, kind) => {
@@ -6184,6 +6520,11 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
         fiscal: f,
         contrib: selling.contrib
       });
+    const h = React.createElement;
+    if (!shared.ready) return h('section', {className: 'quote-sync-gate card'},
+      h('p', {role: 'status'}, shared.syncError ? 'Não foi possível abrir os orçamentos compartilhados.' : 'Carregando orçamentos…'),
+      shared.syncError && h('button', {className: 'btn btn-primary', onClick: shared.refresh}, 'Tentar novamente'),
+      h('button', {className: 'btn btn-ghost', onClick: signOut}, 'Sair da conta'));
     return /*#__PURE__*/React.createElement("div", {
       className: "app integrated"
     }, /*#__PURE__*/React.createElement(window.ToastHost, {
@@ -6192,14 +6533,7 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
       text: loading.text
     }), " ", confirmation && /*#__PURE__*/React.createElement(window.ConfirmModal, _extends({
       open: true
-    }, confirmation)), " ", loginOpen && /*#__PURE__*/React.createElement(window.LoginModal, {
-      onCancel: () => setLoginOpen(false),
-      onSuccess: () => {
-        setUser(window.sb.getUser());
-        setLoginOpen(false);
-        notify("Conta conectada. Catálogo disponível nos seus aparelhos.", "ok");
-      }
-    }), /*#__PURE__*/React.createElement("aside", {
+    }, confirmation)), /*#__PURE__*/React.createElement("aside", {
       className: "sidebar"
     }, /*#__PURE__*/React.createElement("div", {
       className: "brand"
@@ -6218,21 +6552,7 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
       onClick: () => setView("sale")
     }, "03 \xB7 Venda e Margem"), /*#__PURE__*/React.createElement("div", {
       className: "nav-section"
-    }, "Itens do orçamento"), products.map((p, i) => /*#__PURE__*/React.createElement("button", {
-      className: 'nav-item ' + (i === active ? 'active' : ''),
-      key: p.id,
-      onClick: () => updateQuote(() => ({active: i}))
-    }, p.nome || 'Item ' + (i + 1))), /*#__PURE__*/React.createElement("button", {
-      className: "nav-add",
-      onClick: () => {
-        const item = freshProduct();
-        item.nome = 'Item ' + (products.length + 1);
-        updateQuote(quote => ({items: [...quote.items, item], active: quote.items.length}));
-        setView('production');
-      }
-    }, "+ Novo item"), /*#__PURE__*/React.createElement("div", {
-      className: "nav-section"
-    }, "Cadastro de materiais"), /*#__PURE__*/React.createElement("button", {
+    }, "Cadastro de materiais"), h('button', {className: 'nav-item', onClick: signOut}, 'Sair da conta'), /*#__PURE__*/React.createElement("button", {
       className: "nav-item " + (view === 'catalog' ? 'active' : ''),
       onClick: () => setView('catalog')
     }, "Mat\xE9rias-primas cadastradas"), /*#__PURE__*/React.createElement("button", {
@@ -6241,56 +6561,51 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
     }, "+ Nova mat\xE9ria-prima"), /*#__PURE__*/React.createElement("button", {
       className: "nav-item",
       onClick: () => setView('params')
-    }, "Par\xE2metros de margem"), /*#__PURE__*/React.createElement("p", {
-      className: "module-note"
-    }, storageError ? "Não foi possível salvar. Verifique o armazenamento do navegador." : "Orçamentos salvos automaticamente neste navegador.")), /*#__PURE__*/React.createElement("div", {
-      className: "main-wrap"
-    }, /*#__PURE__*/React.createElement("div", {
+    }, "Par\xE2metros de margem")), h("div", {className: "main-wrap"}, /*#__PURE__*/React.createElement("div", {
       className: "topbar"
     }, /*#__PURE__*/React.createElement("span", {
       className: "topbar-name"
     }, view === 'production' ? 'Produção' : view === 'margin' ? 'Material e Margem' : view === 'sale' ? 'Venda e Margem' : view === 'newmp' ? 'Nova matéria-prima' : view === 'catalog' ? 'Matérias-primas cadastradas' : 'Parâmetros'), /*#__PURE__*/React.createElement("button", {
       className: "btn btn-ghost",
-      onClick: () => {
-        const blob = new Blob(['<!doctype html>' + document.documentElement.outerHTML], {
-            type: 'text/html;charset=utf-8'
-          }),
-          u = URL.createObjectURL(blob),
-          a = document.createElement('a');
-        a.href = u;
-        a.download = 'Calculadora_Custos_Margens.html';
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(u), 1000);
+      onClick: async () => {
+        try {
+          const response = await fetch(location.pathname, {cache: 'no-store'});
+          if (!response.ok) throw new Error('Download indisponível');
+          const url = URL.createObjectURL(await response.blob());
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = 'Calculadora_Custos_Margens.html';
+          link.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        } catch (_) {
+          notify('Não foi possível baixar a calculadora.', 'err');
+        }
       }
-    }, "Baixar calculadora"), /*#__PURE__*/React.createElement("button", {
-      className: "btn btn-ghost",
-      onClick: startQuote
-    }, "Novo orçamento")), /*#__PURE__*/React.createElement("main", {
+    }, "Baixar calculadora")), h('div', {className: 'quote-workspace'}, h('main', {
       className: view === "production" ? "main production-main" : "main"
-    }, React.createElement("section", {className: "card quote-record", key: currentQuote.id},
-      React.createElement("div", {className: "card-head"},
-        React.createElement("strong", null, "Orçamento"),
-        React.createElement("small", {role: "status"}, storageError ? "Salvamento indisponível" : "Salvamento automático")
-      ),
-      React.createElement("div", {className: "card-body grid grid-2"},
-        React.createElement("label", {className: "field"},
-          React.createElement("span", {className: "field-label"}, "Nome do orçamento"),
-          React.createElement("input", {type: "text", maxLength: 120, value: currentQuote.title,
+    }, h('section', {className: 'card quote-record', key: currentQuote.id},
+      h('div', {className: 'card-body'},
+        h('label', {className: 'field'},
+          h('span', {className: 'field-label'}, 'Nome do orçamento'),
+          h('input', {type: 'text', maxLength: 120, value: currentQuote.title,
+            placeholder: quoteName(currentQuote),
             onChange: event => {
               const title = event.target.value;
               updateQuote(() => ({title}));
-            }})
-        ),
-        React.createElement("label", {className: "field"},
-          React.createElement("span", {className: "field-label"}, "Abrir orçamento salvo"),
-          React.createElement("select", {value: currentQuote.id, onChange: event => selectQuote(event.target.value)},
-            workspace.quotes.map(quote => React.createElement("option", {key: quote.id, value: quote.id},
-              (quote.title.trim() || "Orçamento sem nome") + " · " + quote.items.length + (quote.items.length === 1 ? " item" : " itens")))
-          )
-        )
-      )
-    ), storageError && React.createElement("p", {role: "alert", className: "banner banner-warn"},
-      "O navegador não conseguiu salvar suas alterações. Libere espaço ou habilite o armazenamento antes de fechar a página."
+            }})))),
+    shared.localError && h('p', {role: 'alert', className: 'banner banner-warn'},
+      'O navegador não salvou o rascunho local. Aguarde a sincronização antes de fechar.'),
+    shared.conflicts.has(currentQuote.id) && h('div', {className: 'card card-body quote-conflict'},
+      h('p', {role: 'alert'}, 'O orçamento também foi alterado em outro aparelho. Escolha qual versão abrir.'),
+      h('button', {className: 'btn btn-primary', onClick: () => {
+        const id = shared.keepConflictAsCopy(currentQuote);
+        setSelection({id, item: active});
+      }}, 'Salvar minhas alterações como cópia'),
+      h('button', {className: 'btn', onClick: async () => {
+        if (await askConfirm({title: 'Abrir versão compartilhada?', message: 'As alterações locais deste orçamento serão descartadas.', okLabel: 'Abrir versão compartilhada'})) {
+          shared.openSharedVersion(currentQuote.id);
+        }
+      }}, 'Abrir versão compartilhada')
     ), /*#__PURE__*/React.createElement("label", {
       className: "field"
     }, /*#__PURE__*/React.createElement("span", {
@@ -6368,13 +6683,15 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
     }, "Conferir material e custo"))), /*#__PURE__*/React.createElement(window.VendaView, {
       state: state,
       setState: next => {
-        setSale(next.venda);
-        setParams(next.params);
+        updateQuote(quote => ({sales: {...quote.sales, [rawItemId]: next.venda}, params: next.params}));
       },
       calc: result,
       costReady: validMP && validProduction,
       taxReady: taxReady
-    }))))));
+    })))), h(QuotePanel, {
+      quotes, currentId: currentQuote.id, active, shared,
+      onOpen: openQuote, onNewQuote: startQuote, onNewItem: addItem
+    }))));
   }
   ReactDOM.createRoot(document.getElementById('root')).render(/*#__PURE__*/React.createElement(App, null));
 })();</script></body></html>
