@@ -1509,6 +1509,24 @@ input[type="checkbox"] {accent-color: #1759ac;}
 .quote-panel h2 {font-size: 16px; margin: 0;}
 .quote-panel-head small {grid-column: 1 / -1; color: var(--text-2);}
 .quote-panel-head .btn {grid-column: 1 / -1; justify-content: center;}
+.quote-filters {grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px;}
+.quote-filters button {
+  min-width: 0; padding: 6px 4px; border: 1px solid var(--border); border-radius: 6px;
+  font: inherit; font-size: 12px; color: var(--text-2); background: var(--surface); cursor: pointer;
+}
+.quote-filters button[aria-pressed="true"] {background: var(--accent-soft); color: var(--accent-strong); font-weight: 700;}
+.quote-filters button:focus-visible, .quote-approve:focus-visible {outline: 2px solid var(--accent); outline-offset: -2px;}
+.quote-approve {
+  flex: 0 0 34px; height: 34px; border: 0; border-radius: 6px; background: transparent;
+  color: var(--positive); font: 700 17px var(--font-sans); cursor: pointer;
+}
+.quote-approve:hover {background: var(--positive-soft);}
+.quote-month h3 {margin: 12px 4px 6px; font-size: 13px;}
+.quote-month:first-child h3 {margin-top: 2px;}
+.quote-empty, .quote-reason {padding: 6px; color: var(--text-2); font-size: 12px; overflow-wrap: anywhere;}
+.quote-reject {color: var(--negative);}
+.quote-reject-form {margin-top: 8px; font-size: 12px;}
+.quote-reject-buttons {display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;}
 .quote-count, .quote-list-title small {font-size: 12px; color: var(--text-2);}
 .quote-list, .quote-items {list-style: none; margin: 0; padding: 0;}
 .quote-list {padding: 10px; overflow: auto; overscroll-behavior: contain;}
@@ -6431,7 +6449,71 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
       ready, syncing, syncError, localError, refresh: () => sync(true)};
   }
 
-  function QuotePanel({quotes, currentId, active, shared, onOpen, onNewQuote, onNewItem, onDelete}) {
+  const quoteFilters = [
+    ['open', 'Em aberto', 'Nenhum orçamento em aberto.'],
+    ['approved', 'Aprovados', 'Nenhum orçamento aprovado nos últimos meses.'],
+    ['rejected', 'Reprovados', 'Nenhum orçamento reprovado.'],
+    ['archived', 'Arquivo', 'Nenhum orçamento arquivado.']
+  ];
+  const quoteMonth = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit'
+  });
+  const quoteMonthLabel = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo', month: 'long', year: 'numeric'
+  });
+  const quoteDateLabel = new Intl.DateTimeFormat('pt-BR', {timeZone: 'America/Sao_Paulo'});
+
+  function monthNumber(date) {
+    const parts = quoteMonth.formatToParts(date);
+    const year = Number(parts.find(part => part.type === 'year').value);
+    const month = Number(parts.find(part => part.type === 'month').value);
+    return year * 12 + month;
+  }
+
+  function quoteBucket(quote, today) {
+    const decision = quote.decision;
+    if (!decision || !Number.isFinite(Date.parse(decision.at))) return 'open';
+    if (decision.status === 'rejected') return 'rejected';
+    if (decision.status !== 'approved') return 'open';
+    return today - monthNumber(new Date(decision.at)) > 3 ? 'archived' : 'approved';
+  }
+
+  function quoteGroups(quotes, filter) {
+    if (filter !== 'approved' && filter !== 'archived') return [[null, quotes]];
+    const months = new Map();
+    const sorted = [...quotes].sort((a, b) => Date.parse(b.decision.at) - Date.parse(a.decision.at));
+    for (const quote of sorted) {
+      const date = new Date(quote.decision.at);
+      const label = quoteMonthLabel.format(date).replace(' de ', ' ');
+      const month = label[0].toUpperCase() + label.slice(1);
+      if (!months.has(month)) months.set(month, []);
+      months.get(month).push(quote);
+    }
+    return [...months];
+  }
+
+  function QuoteDecisionActions({quote, onDecision}) {
+    const h = React.createElement;
+    const [rejecting, setRejecting] = useState(false);
+    const [reason, setReason] = useState('');
+    if (quote.decision?.status === 'approved' || quote.decision?.status === 'rejected') {
+      return h('button', {className: 'btn btn-ghost', onClick: () => onDecision(quote, 'open')}, 'Reabrir orçamento');
+    }
+    if (!rejecting) {
+      return h('button', {className: 'btn btn-ghost quote-reject', onClick: () => setRejecting(true)}, 'Reprovar');
+    }
+    return h('form', {className: 'quote-reject-form', onSubmit: event => {
+      event.preventDefault();
+      onDecision(quote, 'rejected', reason.trim());
+    }},
+      h('label', null, 'Motivo da reprovação (opcional)',
+        h('input', {type: 'text', autoFocus: true, maxLength: 200, value: reason, onChange: e => setReason(e.target.value)})),
+      h('div', {className: 'quote-reject-buttons'},
+        h('button', {className: 'btn btn-ghost', type: 'button', onClick: () => setRejecting(false)}, 'Cancelar'),
+        h('button', {className: 'btn btn-danger', type: 'submit'}, 'Confirmar reprovação')));
+  }
+
+  function QuotePanel({quotes, currentId, active, shared, filter, onFilter, onOpen, onNewQuote, onNewItem, onDelete, onDecision}) {
     const h = React.createElement;
     const count = quotes.filter(quote => quote.seq).length;
     const status = shared.syncError ? 'Sincronização indisponível'
@@ -6446,15 +6528,23 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
       const frame = scroll.getBoundingClientRect();
       if (item.bottom > frame.bottom) scroll.scrollTop += item.bottom - frame.bottom + 8;
       else if (item.top < frame.top) scroll.scrollTop -= frame.top - item.top + 8;
-    }, [currentId, active, count]);
+    }, [currentId, active, count, filter]);
     return h('aside', {className: 'quote-panel card', 'aria-labelledby': 'quotes-heading'},
       h('header', {className: 'quote-panel-head'},
         h('h2', {id: 'quotes-heading'}, 'Orçamentos'),
         h('span', {className: 'quote-count'}, count + (count === 1 ? ' salvo' : ' salvos')),
         h('small', {role: 'status'}, status),
+        h('div', {className: 'quote-filters', role: 'group', 'aria-label': 'Status dos orçamentos'},
+          quoteFilters.map(([value, label]) => h('button', {
+            key: value, type: 'button', 'aria-pressed': filter === value, onClick: () => onFilter(value)
+          }, label))),
         h('button', {className: 'btn btn-primary', onClick: onNewQuote}, '+ Novo orçamento'),
         shared.syncError && h('button', {className: 'btn', onClick: shared.refresh}, 'Tentar sincronizar')),
-      h('ol', {className: 'quote-list', ref: list}, quotes.map(quote => {
+      h('ol', {className: 'quote-list', ref: list},
+        !quotes.length && h('li', {className: 'quote-empty'}, quoteFilters.find(([value]) => filter === value)[2]),
+        quoteGroups(quotes, filter).flatMap(([month, entries]) => [
+          month && h('li', {key: month, className: 'quote-month'}, h('h3', null, month)),
+          ...entries.map(quote => {
         const selected = quote.id === currentId;
         const name = quoteName(quote);
         return h('li', {key: quote.id, className: 'quote-list-entry' + (selected ? ' selected' : '')},
@@ -6463,8 +6553,17 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
             onClick: () => onOpen(quote)},
             h('span', {className: 'quote-number'}, quote.seq ? '#' + quote.seq : 'Novo'),
             h('span', {className: 'quote-list-title'}, h('strong', null, name),
-              h('small', null, quote.items.length + (quote.items.length === 1 ? ' item' : ' itens'))),
+              h('small', null, quote.items.length + (quote.items.length === 1 ? ' item' : ' itens')),
+              filter !== 'open' && h('small', {className: 'quote-decision-date'},
+                (filter === 'rejected' ? 'Reprovado em ' : 'Aprovado em ') + quoteDateLabel.format(new Date(quote.decision.at)))),
             h('span', {'aria-hidden': true}, selected ? '▾' : '›')),
+          filter === 'open' && (quote.seq || shared.pending[quote.id]) && h('button', {
+            type: 'button',
+            className: 'quote-approve',
+            'aria-label': 'Aprovar ' + name,
+            title: 'Aprovar orçamento',
+            onClick: () => onDecision(quote, 'approved')
+          }, h('span', {'aria-hidden': true}, '✓')),
           (quote.seq || shared.pending[quote.id]) && h('button', {
             type: 'button',
             className: 'quote-delete',
@@ -6482,8 +6581,12 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
                   onClick: () => onOpen(quote, index)},
                   h('span', {className: 'quote-item-number'}, index + 1),
                   h('span', null, item.nome?.trim() || 'Item ' + (index + 1)))))),
-            h('button', {className: 'btn quote-add-item', onClick: onNewItem}, '+ Novo item')));
-      })));
+            filter === 'open' && h('button', {className: 'btn quote-add-item', onClick: onNewItem}, '+ Novo item'),
+            filter === 'rejected' && quote.decision.reason && h('p', {className: 'quote-reason'}, 'Motivo: ' + quote.decision.reason),
+            (quote.seq || shared.pending[quote.id]) && h(QuoteDecisionActions, {
+              key: quote.id, quote, onDecision
+            })));
+        })])));
   }
 
   function FixedCostsEditor({params, onApply}) {
@@ -6546,13 +6649,35 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
   function QuoteApp({userId, signOut}) {
     const [draft, setDraft] = useState(() => newQuote());
     const [selection, setSelection] = useState({id: '', item: 0});
+    const [filter, setFilter] = useState('open');
+    const [today, setToday] = useState(() => monthNumber(new Date()));
+    useEffect(() => {
+      const updateMonth = () => setToday(monthNumber(new Date()));
+      const timer = setInterval(updateMonth, 60000);
+      window.addEventListener('focus', updateMonth);
+      return () => { clearInterval(timer); window.removeEventListener('focus', updateMonth); };
+    }, []);
     const [view, setView] = useState('production');
     const [toast, setToast] = useState(null);
     const [loading, setLoading] = useState(null);
     const [confirmation, setConfirmation] = useState(null);
     const shared = useSharedQuotes(userId);
-    const quotes = shared.quotes.length ? shared.quotes : [draft];
-    const currentQuote = quotes.find(quote => quote.id === selection.id) || quotes[0];
+    const quotes = shared.quotes.filter(quote => quoteBucket(quote, today) === filter);
+    if (!quotes.length && filter === 'open') quotes.push(draft);
+    const currentQuote = quotes.find(quote => quote.id === selection.id) || quotes[0] || draft;
+    const editingQuote = quotes.length > 0;
+    const changeFilter = value => {
+      setFilter(value);
+      setSelection({id: '', item: 0});
+    };
+    const changeDecision = (quote, status, reason = '') => {
+      const decision = status === 'open' ? null : {status, at: new Date().toISOString(), reason};
+      shared.edit(quote, () => ({decision}));
+      setToday(monthNumber(new Date()));
+      setFilter(status);
+      setSelection({id: quote.id, item: 0});
+      setView('production');
+    };
     const {items: products, params, sales} = currentQuote;
     const active = selection.id === currentQuote.id && products[selection.item] ? selection.item : 0;
     const rawItemId = products[active].id;
@@ -6572,6 +6697,7 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
     };
     const startQuote = () => {
       const quote = newQuote(params);
+      setFilter('open');
       shared.edit(quote, () => ({}));
       setSelection({id: quote.id, item: 0});
       setView('production');
@@ -6716,7 +6842,9 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
       }
     }, "Baixar calculadora")), h('div', {className: 'quote-workspace'}, h('main', {
       className: view === "production" ? "main production-main" : "main"
-    }, h('section', {className: 'card quote-record', key: currentQuote.id},
+    }, !editingQuote && (view === 'production' || view === 'margin' || view === 'sale')
+      ? h('p', {className: 'card card-body'}, quoteFilters.find(([value]) => filter === value)[2])
+      : h(React.Fragment, null, h('section', {className: 'card quote-record', key: currentQuote.id},
       h('div', {className: 'card-body'},
         h('label', {className: 'field'},
           h('span', {className: 'field-label'}, 'Nome do orçamento'),
@@ -6827,8 +6955,9 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
       calc: result,
       costReady: validMP && validProduction,
       taxReady: taxReady
-    })))), h(QuotePanel, {
-      quotes, currentId: currentQuote.id, active, shared,
+    }))))), h(QuotePanel, {
+      quotes, currentId: currentQuote.id, active, shared, filter,
+      onFilter: changeFilter, onDecision: changeDecision,
       onOpen: openQuote, onNewQuote: startQuote, onNewItem: addItem, onDelete: deleteQuote
     }))));
   }
