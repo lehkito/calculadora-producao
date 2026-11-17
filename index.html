@@ -2750,7 +2750,7 @@ window.sb = (() => {
   // =====================================================================
   const OBJ_STR_RE = /\[object[^\]]*\]/g;
   const isCorrupt = s => typeof s === 'string' && s.includes('[object');
-  function parseLocaleNumber(raw) {
+  function parseLocaleNumber(raw, decimalPrice = false) {
     if (raw === null || raw === undefined) return null;
     if (typeof raw === 'number') return isFinite(raw) ? raw : null;
     let s = String(raw).replace(OBJ_STR_RE, '').replace(/R\$|%/g, '').replace(/\s+/g, '').trim();
@@ -2766,7 +2766,7 @@ window.sb = (() => {
       }
     } else if (hasComma) {
       s = s.replace(',', '.');
-    } else if (hasDot) {
+    } else if (hasDot && !decimalPrice) {
       // 19.813 deve ser aceito como milhar BR; 19.8 como decimal.
       const sign = s.startsWith('-') ? '-' : '';
       const body = sign ? s.slice(1) : s;
@@ -2775,17 +2775,19 @@ window.sb = (() => {
     const n = Number(s);
     return Number.isFinite(n) ? n : null;
   }
-  function numToDraft(value) {
+  function numToDraft(value, decimalPrice = false) {
     if (value === null || value === undefined || value === '') return '';
     const n = parseLocaleNumber(value);
-    return n === null ? '' : String(n);
+    return n === null ? '' : decimalPrice ? n.toLocaleString('pt-BR', {useGrouping: false, minimumFractionDigits: 3, maximumFractionDigits: 4}) : String(n);
   }
   function NumInput({
     value,
     onChange,
+    decimalPrice = false,
+    decimals,
     ...rest
   }) {
-    const [draft, setDraft] = useState(() => numToDraft(value));
+    const [draft, setDraft] = useState(() => numToDraft(value, decimalPrice));
     const [editing, setEditing] = useState(false);
     const committedRef = useRef(null);
     const emit = useCallback(n => {
@@ -2793,7 +2795,7 @@ window.sb = (() => {
     }, [onChange]);
     useEffect(() => {
       if (editing) return;
-      const external = parseLocaleNumber(value);
+      const external = parseLocaleNumber(value, decimalPrice);
       const committed = committedRef.current;
 
       // Após blur, pode existir um render intermediário com o valor antigo do pai.
@@ -2802,8 +2804,8 @@ window.sb = (() => {
         if (external === null || Math.abs(external - committed) > 0.0000001) return;
         committedRef.current = null;
       }
-      setDraft(numToDraft(value));
-    }, [value, editing]);
+      setDraft(numToDraft(value, decimalPrice));
+    }, [value, editing, decimalPrice]);
     const safeDraft = (typeof draft === 'string' ? draft : '').replace(OBJ_STR_RE, '');
     return /*#__PURE__*/React.createElement("input", _extends({
       type: "text",
@@ -2821,16 +2823,16 @@ window.sb = (() => {
       "data-form-type": "other",
       onFocus: () => setEditing(true),
       onBlur: () => {
-        const num = parseLocaleNumber(safeDraft);
+        const num = parseLocaleNumber(safeDraft, decimalPrice);
         setEditing(false);
         if (num === null) {
           committedRef.current = 0;
-          setDraft(numToDraft(0));
+          setDraft(numToDraft(0, decimalPrice));
           emit(0);
           return;
         }
         committedRef.current = num;
-        setDraft(numToDraft(num));
+        setDraft(numToDraft(num, decimalPrice));
         emit(num);
       },
       onChange: ev => {
@@ -2840,7 +2842,7 @@ window.sb = (() => {
           return;
         }
         setDraft(text);
-        const num = parseLocaleNumber(text);
+        const num = parseLocaleNumber(text, decimalPrice);
         // Atualiza o estado do pai sempre que o texto já representa um número.
         // O draft local preserva formatos intermediários como "12," enquanto digita.
         if (num !== null) emit(num);
@@ -5527,7 +5529,9 @@ window.sb = (() => {
       text: "Editar pre\xE7o unit\xE1rio recalcula o valor total. Editar valor total recalcula o pre\xE7o unit\xE1rio. Editar quantidade preserva o pre\xE7o unit\xE1rio e recalcula o total."
     })), /*#__PURE__*/React.createElement(window.NumInput, {
       value: v.qtd > 0 ? +(v.valor / v.qtd).toFixed(4) : 0,
-      decimals: 4,
+      decimalPrice: true,
+      "aria-label": "Preço unitário de venda (R$)",
+      placeholder: "0,123",
       onChange: unit => {
         // Ao mudar preço unitário: recalcula o valor total
         const novoValor = +(unit * (v.qtd || 0)).toFixed(2);
