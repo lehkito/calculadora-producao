@@ -5829,7 +5829,13 @@ window.sb = (() => {
       className: "card card-body"
     }, /*#__PURE__*/React.createElement("span", null, "UF \xB7 opera\xE7\xE3o"), /*#__PURE__*/React.createElement("strong", null, v.uf, " \xB7 ", c.tipo), /*#__PURE__*/React.createElement("small", null, "ICMS ", pct(c.aliqICMS))), /*#__PURE__*/React.createElement("div", {
       className: "card card-body"
-    }, /*#__PURE__*/React.createElement("span", null, "Canal"), /*#__PURE__*/React.createElement("strong", null, v.mkt === 'SIM' ? 'Marketplace' : 'Venda direta'), /*#__PURE__*/React.createElement("small", null, v.mkt === 'SIM' ? v.comissao + '% de comissão' : 'Sem comissão marketplace'))), /*#__PURE__*/React.createElement("p", {
+    }, /*#__PURE__*/React.createElement("span", null, "Canal"), /*#__PURE__*/React.createElement("strong", null, v.mkt === 'SIM' ? 'Marketplace' : 'Venda direta'), /*#__PURE__*/React.createElement("small", null, v.mkt === 'SIM' ? v.comissao + '% de comissão' : 'Sem comissão marketplace'))),
+    onExport && React.createElement("button", {
+      type: "button",
+      className: "btn btn-primary",
+      style: {width: '100%', justifyContent: 'center', marginTop: 8},
+      onClick: onExport
+    }, "Imprimir relatório / Salvar PDF"), /*#__PURE__*/React.createElement("p", {
       className: "module-note"
     }, "Margens sobre a receita dos produtos, sem IPI. Lucro l\xEDquido ap\xF3s provis\xF5es gerenciais de IRPJ/CSLL."))));
   }
@@ -6642,7 +6648,7 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
       const state = {params, venda: sale};
       return h('section', {className: 'report-page report-item-page', key: product.id},
         h('header', {className: 'report-header'},
-          h('p', {className: 'report-eyebrow'}, 'Orçamento #' + quote.seq + ' · ' + quoteName(quote)),
+          h('p', {className: 'report-eyebrow'}, (quote.seq ? 'Orçamento #' + quote.seq : 'Orçamento em edição') + ' · ' + quoteName(quote)),
           h('h2', null, 'Item ' + (index + 1) + ' · ' + (product.nome || 'Produto')),
           h('strong', {className: 'report-destination'}, 'SP → ' + sale.uf + ' · ' + calc.tipo)),
         h('dl', {className: 'report-facts'},
@@ -6678,17 +6684,18 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
           ' · Etapas de produção ' + currency(production.costs.reduce((sum, value) => sum + value, 0))),
         footer());
     });
-    return h('div', {className: 'quote-report', role: 'region', 'aria-label': 'Relatório do orçamento aprovado'},
+    return h('div', {className: 'quote-report', role: 'region', 'aria-label': 'Relatório do orçamento'},
       h('div', {className: 'report-toolbar'},
         h('button', {className: 'btn', onClick: onClose}, 'Voltar ao orçamento'),
         h('button', {className: 'btn btn-primary', onClick: () => window.print()}, 'Imprimir / Salvar PDF')),
       h('section', {className: 'report-page'},
         h('header', {className: 'report-header'},
-          h('p', {className: 'report-eyebrow'}, 'Relatório interno · orçamento aprovado'),
-          h('h1', null, 'Orçamento #' + quote.seq),
+          h('p', {className: 'report-eyebrow'}, 'Relatório interno · ' + (quote.decision?.status === 'approved' ? 'Aprovado' : quote.decision?.status === 'rejected' ? 'Reprovado' : 'Em aberto')),
+          h('h1', null, (quote.seq ? 'Orçamento #' + quote.seq : 'Orçamento em edição')),
           h('h2', null, quoteName(quote)),
-          h('p', null, 'Aprovado em ' + new Date(quote.decision.at).toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo'}) +
-            ' · Emitido em ' + issuedAt.toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo'}))),
+          h('p', null, (quote.decision?.at ? (quote.decision.status === 'approved' ? 'Aprovado em ' : 'Reprovado em ') +
+            new Date(quote.decision.at).toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo'}) + ' · ' : '') +
+            'Emitido em ' + issuedAt.toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo'}))),
         h('dl', {className: 'report-facts'},
           info('Itens', items.length),
           info('Estados de destino', [...new Set(items.map(item => item.sale.uf))].join(', ')),
@@ -6716,7 +6723,7 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
       details);
   }
 
-  function QuotePanel({quotes, currentId, active, shared, filter, onFilter, onOpen, onNewQuote, onNewItem, onDelete, onDecision, onReport}) {
+  function QuotePanel({quotes, currentId, active, shared, filter, onFilter, onOpen, onNewQuote, onNewItem, onDelete, onDecision}) {
     const h = React.createElement;
     const count = quotes.filter(quote => quote.seq).length;
     const status = shared.syncError ? 'Sincronização indisponível'
@@ -6785,11 +6792,6 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
                   h('span', {className: 'quote-item-number'}, index + 1),
                   h('span', null, item.nome?.trim() || 'Item ' + (index + 1)))))),
             filter === 'open' && h('button', {className: 'btn quote-add-item', onClick: onNewItem}, '+ Novo item'),
-            quote.decision?.status === 'approved' && h('button', {
-              className: 'btn btn-primary quote-add-item',
-              disabled: !!shared.pending[quote.id] || shared.conflicts.has(quote.id),
-              onClick: () => onReport(quote)
-            }, shared.pending[quote.id] ? 'Salvando orçamento…' : 'Relatório para impressão'),
             filter === 'rejected' && quote.decision.reason && h('p', {className: 'quote-reason'}, 'Motivo: ' + quote.decision.reason),
             (quote.seq || shared.pending[quote.id]) && h(QuoteDecisionActions, {
               key: quote.id, quote, onDecision
@@ -7165,11 +7167,12 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
         updateQuote(quote => ({sales: {...quote.sales, [rawItemId]: next.venda}, params: next.params}));
       },
       calc: result,
+      onExport: () => openReport(currentQuote),
       costReady: validMP && validProduction,
       taxReady: taxReady
     }))))), h(QuotePanel, {
       quotes, currentId: currentQuote.id, active, shared, filter,
-      onFilter: changeFilter, onDecision: changeDecision, onReport: openReport,
+      onFilter: changeFilter, onDecision: changeDecision,
       onOpen: openQuote, onNewQuote: startQuote, onNewItem: addItem, onDelete: deleteQuote
     }))), report && h(QuoteReport, {quote: report, onClose: () => setReport(null)}));
   }
