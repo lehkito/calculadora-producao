@@ -1579,6 +1579,58 @@ input[type="checkbox"] {accent-color: #1759ac;}
   .quote-workspace {grid-template-columns: minmax(0, 1fr); padding: 16px; gap: 16px;}
   .quote-panel {grid-row: 1; position: static; max-height: min(55dvh, 380px);}
 }
+.quote-report {position: fixed; inset: 0; z-index: 9200; overflow: auto; background: #eaf0f7; color: #102b4b; padding: 20px;}
+.report-toolbar {position: sticky; top: -20px; max-width: 1000px; margin: 0 auto 20px; padding: 12px; background: #f7fbff; border: 1px solid #c7d9ed; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; z-index: 1;}
+.report-page {max-width: 1000px; margin: 0 auto 24px; padding: 30px; background: #fff; border: 1px solid #c7d9ed;}
+.report-header {border-bottom: 2px solid #163e67; padding-bottom: 12px; margin-bottom: 16px;}
+.report-eyebrow {font-size: 13px; color: #496683;}
+.report-page h1 {font-size: 25px; margin: 8px 0;}
+.report-page h2 {font-size: 18px; margin: 12px 0;}
+.report-destination {display: block; margin-top: 12px; font-size: 18px;}
+.report-facts, .report-kpis {display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px 16px; margin: 16px 0;}
+.report-facts dt, .report-kpis dt {font-size: 12px; color: #496683;}
+.report-facts dd, .report-kpis dd {font-size: 14px; margin: 4px 0 0; overflow-wrap: anywhere;}
+.report-kpis {background: #f0f6fd; padding: 14px;}
+.report-kpis dd {font-size: 18px; font-weight: 700;}
+.report-table {width: 100%; border-collapse: collapse; margin: 16px 0; table-layout: fixed; font-size: 12px;}
+.report-table th, .report-table td {padding: 7px 5px; border-bottom: 1px solid #dce7f3; text-align: right; overflow-wrap: anywhere;}
+.report-table th:first-child {text-align: left;}
+.report-table th {font-weight: 500;}
+.report-table thead th {background: #eaf2fc; font-weight: 700;}
+.report-dre th:first-child {width: 58%;}
+.report-table .subtotal th, .report-table .subtotal td {font-weight: 700; background: #f4f7fb;}
+.report-table .final th, .report-table .final td {font-weight: 700; border-top: 2px solid #163e67;}
+.report-warning {padding: 10px 12px; border: 1px solid #d79b29; background: #fff8e6; color: #63430a; font-size: 13px; margin: 12px 0;}
+.report-warning ul {padding-left: 20px; margin: 6px 0;}
+.report-bases, .report-footnote {font-size: 11px; line-height: 1.5; color: #496683;}
+.report-footnote {border-top: 1px solid #c7d9ed; padding-top: 10px;}
+@media(max-width: 600px) {
+  .quote-report {padding: 8px;}
+  .report-page {padding: 14px;}
+  .report-facts, .report-kpis {grid-template-columns: repeat(2,minmax(0,1fr));}
+  .report-table {font-size: 10px;}
+}
+@media print {
+  @page {size: A4 portrait; margin: 12mm;}
+  body:has(.quote-report) {height: auto; background: white;}
+  body:has(.quote-report) .app > :not(.quote-report) {display: none !important;}
+  body:has(.quote-report) .app {display: block !important;}
+  .quote-report {position: static; display: block; overflow: visible; padding: 0; background: white; color: black;}
+  .report-toolbar {display: none !important;}
+  .report-page {max-width: none; margin: 0; padding: 0; border: 0; font-size: 10pt;}
+  .report-item-page {break-before: page;}
+  .report-header {break-after: avoid;}
+  .report-facts, .report-kpis, .report-warning, .report-footnote {break-inside: avoid;}
+  .report-facts {grid-template-columns: repeat(3,minmax(0,1fr)); gap: 7px 12px;}
+  .report-table {font-size: 9pt;}
+  .report-table th, .report-table td {padding: 4px;}
+  .report-table tr {break-inside: avoid;}
+  .report-table thead {display: table-header-group;}
+  .report-dre {break-inside: avoid;}
+  .report-footnote {font-size: 8pt;}
+  .report-facts dd {font-size: 10pt;}
+  .report-kpis dd {font-size: 12pt;}
+}
 </style></head><body><div id="root"></div><script>/**
  * @license React
  * react.production.min.js
@@ -5335,47 +5387,9 @@ window.sb = (() => {
     pct,
     intFmt
   } = window;
-  function VendaView({
-    state,
-    setState,
-    calc,
-    viewingMode,
-    onExitView,
-    onSave,
-    savingHint,
-    onExport,
-    costReady = true,
-    taxReady = true
-  }) {
+  window.saleDreRows = (state, c) => {
     const v = state.venda;
-    const c = calc;
-    const denom = c.dre.receitaBruta || 1;
-    const produto = state.produtos.find(p => p.id === v.produtoId);
-    const cmvZero = c.cmvUn === 0;
-    const showResult = costReady && taxReady && Number(v.valor) > 0;
-    const parts = [['CMV', c.dre.cmvTotal, '#8c94a3'], ['Tributos e provisões', c.kpi.tributos, '#ffa5b8'], ['Comissão', c.dre.comissao, '#90caff'], ['Fixos', c.dre.custosFixos, '#626978'], ['Resultado', c.dre.lucroLiq, '#71dfb1']];
-    const positiveSum = parts.reduce((sum, p) => sum + Math.max(0, p[1]), 0);
-    const setV = patch => {
-      const fiscalChanged = ['uf', 'contrib', 'ipi'].some(k => Object.prototype.hasOwnProperty.call(patch, k));
-      setState({
-        ...state,
-        venda: {
-          ...state.venda,
-          ...patch,
-          ...(fiscalChanged ? {
-            fiscal: {
-              ...(state.venda.fiscal || {}),
-              confirmed: false,
-              ...(Object.prototype.hasOwnProperty.call(patch, 'uf') ? {
-                icms: null,
-                internal: null
-              } : {})
-            }
-          } : {})
-        }
-      });
-    };
-    const dreRows = [{
+    return [{
       label: 'Valor total da nota fiscal',
       val: c.dre.valorNota,
       cls: 'subtotal'
@@ -5448,6 +5462,49 @@ window.sb = (() => {
       val: c.dre.lucroLiq,
       cls: 'final'
     }];
+  };
+
+  function VendaView({
+    state,
+    setState,
+    calc,
+    viewingMode,
+    onExitView,
+    onSave,
+    savingHint,
+    onExport,
+    costReady = true,
+    taxReady = true
+  }) {
+    const v = state.venda;
+    const c = calc;
+    const denom = c.dre.receitaBruta || 1;
+    const produto = state.produtos.find(p => p.id === v.produtoId);
+    const cmvZero = c.cmvUn === 0;
+    const showResult = costReady && taxReady && Number(v.valor) > 0;
+    const parts = [['CMV', c.dre.cmvTotal, '#8c94a3'], ['Tributos e provisões', c.kpi.tributos, '#ffa5b8'], ['Comissão', c.dre.comissao, '#90caff'], ['Fixos', c.dre.custosFixos, '#626978'], ['Resultado', c.dre.lucroLiq, '#71dfb1']];
+    const positiveSum = parts.reduce((sum, p) => sum + Math.max(0, p[1]), 0);
+    const setV = patch => {
+      const fiscalChanged = ['uf', 'contrib', 'ipi'].some(k => Object.prototype.hasOwnProperty.call(patch, k));
+      setState({
+        ...state,
+        venda: {
+          ...state.venda,
+          ...patch,
+          ...(fiscalChanged ? {
+            fiscal: {
+              ...(state.venda.fiscal || {}),
+              confirmed: false,
+              ...(Object.prototype.hasOwnProperty.call(patch, 'uf') ? {
+                icms: null,
+                internal: null
+              } : {})
+            }
+          } : {})
+        }
+      });
+    };
+    const dreRows = window.saleDreRows(state, c);
     return /*#__PURE__*/React.createElement(React.Fragment, null, viewingMode && /*#__PURE__*/React.createElement("div", {
       className: "view-banner"
     }, /*#__PURE__*/React.createElement("div", {
@@ -6517,7 +6574,149 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
         h('button', {className: 'btn btn-danger', type: 'submit'}, 'Confirmar reprovação')));
   }
 
-  function QuotePanel({quotes, currentId, active, shared, filter, onFilter, onOpen, onNewQuote, onNewItem, onDelete, onDecision}) {
+  function reportItem(raw, quote) {
+    const product = window.integrateProduction(raw);
+    const sale = {
+      ...window.VENDA_PADRAO(), valor: 0, ...quote.sales?.[raw.id],
+      produtoId: product.id, qtd: product.prod.qtd
+    };
+    const params = {...window.PARAMS_PADRAO(), ...quote.params};
+    const calc = window.calcVenda(sale, product, params);
+    const flags = window.mpFiscal(product.nf);
+    const fiscal = sale.fiscal || {};
+    const pending = window.salePending({
+      validMP: product.nf.kg > 0 && product.nf.valor > 0 && product.prod.mpKg > 0,
+      validProduction: product.setup.qty > 0 && Number.isInteger(product.setup.qty)
+        && product.setup.step > 0 && product.setup.speed > 0 && product.setup.beats > 0
+        && product.setup.setupPrint >= 0 && product.setup.setupCut >= 0,
+      hasPurchaseReview: ['pcEligible', 'icmsEligible', 'ipiRecoverable'].every(key => typeof flags[key] === 'boolean')
+        && !(product.nf.simples === 'SIM' && flags.pcEligible && !(Number(flags.pcBase) >= 0)),
+      fiscal, contrib: sale.contrib
+    });
+    if (!(Number(sale.valor) > 0)) pending.push('Preço de venda não informado.');
+    return {product, sale, params, calc, pending};
+  }
+
+  function QuoteReport({quote, onClose}) {
+    const h = React.createElement;
+    const [issuedAt] = useState(() => new Date());
+    const items = quote.items.map(raw => reportItem(raw, quote));
+    const currency = window.brl;
+    const percent = window.pct;
+    const allReady = items.every(item => !item.pending.length);
+    const total = items.reduce((sum, item) => {
+      Object.keys(item.calc.dre).forEach(key => {
+        if (key !== 'comissaoVendedorPct') sum[key] = (sum[key] || 0) + item.calc.dre[key];
+      });
+      return sum;
+    }, {});
+    const summaryCalc = {dre: {...total, comissaoVendedorPct: 0}, aplicarFixos: items[0].calc.aplicarFixos};
+    const summaryState = {params: items[0].params, venda: {}};
+    const summaryRows = window.saleDreRows(summaryState, summaryCalc).map(row => ({
+      ...row,
+      label: row.label.startsWith('(−) Comissão vendedor') ? '(−) Comissão dos vendedores' : row.label
+    }));
+    function dreTable(rows, revenue) {
+      return h('table', {className: 'report-table report-dre'},
+        h('thead', null, h('tr', null,
+          h('th', {scope: 'col'}, 'DRE'),
+          h('th', {scope: 'col'}, 'Valor (R$)'),
+          h('th', {scope: 'col'}, '% da receita dos produtos'))),
+        h('tbody', null, rows.map((row, i) => h('tr', {key: i, className: row.cls},
+          h('th', {scope: 'row'}, row.label),
+          h('td', null, currency(row.val)),
+          h('td', null, revenue > 0 ? percent(row.val / revenue) : '—')))));
+    }
+    function info(label, value) {
+      return h('div', {key: label}, h('dt', null, label), h('dd', null, value));
+    }
+    function footer() {
+      return h('p', {className: 'report-footnote'},
+        'Relatório gerencial interno. Consolidado soma os resultados e provisões dos itens. Valores do orçamento na emissão. Margens sobre a receita dos produtos, sem IPI. IRPJ/CSLL são provisões gerenciais. ' +
+        (allReady ? 'Parâmetros fiscais conferidos na calculadora.' : 'Há pendências na simulação. Os resultados calculados requerem conferência.'));
+    }
+    const details = items.map(({product, sale, params, calc, pending}, index) => {
+      const f = sale.fiscal || {};
+      const material = product.nf.materiaPrimaSnapshot;
+      const production = window.productionCosts(product.setup);
+      const state = {params, venda: sale};
+      return h('section', {className: 'report-page report-item-page', key: product.id},
+        h('header', {className: 'report-header'},
+          h('p', {className: 'report-eyebrow'}, 'Orçamento #' + quote.seq + ' · ' + quoteName(quote)),
+          h('h2', null, 'Item ' + (index + 1) + ' · ' + (product.nome || 'Produto')),
+          h('strong', {className: 'report-destination'}, 'SP → ' + sale.uf + ' · ' + calc.tipo)),
+        h('dl', {className: 'report-facts'},
+          info('Quantidade', window.intFmt(sale.qtd) + ' unidades'),
+          info('Preço unitário', currency(calc.precoUn, 4)),
+          info('Valor com IPI', currency(calc.dre.valorNota)),
+          info('NCM', f.ncm || 'Não informado'),
+          info('Destinatário', sale.contrib === 'NAO' ? 'Não contribuinte de ICMS' : 'Contribuinte de ICMS'),
+          info('Finalidade', f.purpose === 'final' ? 'Uso / consumo / ativo / consumidor final' : f.purpose === 'industrial' ? 'Revenda / industrialização' : f.purpose || 'Não informada'),
+          info('ICMS da venda', percent(calc.aliqICMS)),
+          info('Alíquota interna destino', percent(calc.aliqInterna)),
+          info('DIFAL', calc.difalAplicavel ? currency(calc.dre.difal) : 'Não aplicável'),
+          info('IPI da venda', sale.ipi === 'SIM' ? percent(calc.aliqIPI) : 'Sem IPI'),
+          info('Comissão do vendedor', 'Faixa ' + (sale.comissaoFaixa === '2' ? '2' : '1') + ' · ' + percent(calc.dre.comissaoVendedorPct / 100)),
+          info('Canal', sale.mkt === 'SIM' ? 'Marketplace · ' + percent(Number(sale.comissao) / 100) : 'Venda direta'),
+          info('Matéria-prima', material ? 'MP #' + String(material.seq).padStart(4, '0') + ' · ' + material.nome : 'Custo informado no item'),
+          info('Consumo de matéria-prima', Number(product.prod.mpKg).toLocaleString('pt-BR') + ' kg'),
+          info('CMV unitário', currency(calc.cmvUn, 4)),
+          info('Produção', 'Passo ' + product.setup.step + ' cm · ' + (product.setup.colors === 'cromia' ? 'Cromia' : product.setup.colors + ' cor(es)'))),
+        pending.length > 0 && h('div', {className: 'report-warning'},
+          h('strong', null, 'Resultado a conferir'),
+          h('ul', null, pending.map((message, i) => h('li', {key: i}, message)))),
+        h('div', {className: 'report-kpis'},
+          info('Resultado líquido estimado', currency(calc.dre.lucroLiq)),
+          info('Margem líquida', percent(calc.kpi.margemLiq)),
+          info('Margem bruta', percent(calc.kpi.margemBruta)),
+          info('Carga tributária e provisões', percent(calc.kpi.cargaTrib))),
+        dreTable(window.saleDreRows(state, calc), calc.dre.receitaBruta),
+        h('p', {className: 'report-bases'},
+          'Base ICMS ' + currency(calc.baseICMS) + ' · Base PIS/COFINS ' + currency(calc.basePisCofins) +
+          ' · PIS ' + params.pis + '% · COFINS ' + params.cofins + '% · Custos fixos ' +
+          (calc.aplicarFixos ? params.fixos + '%' : 'desativados') +
+          ' · Etapas de produção ' + currency(production.costs.reduce((sum, value) => sum + value, 0))),
+        footer());
+    });
+    return h('div', {className: 'quote-report', role: 'region', 'aria-label': 'Relatório do orçamento aprovado'},
+      h('div', {className: 'report-toolbar'},
+        h('button', {className: 'btn', onClick: onClose}, 'Voltar ao orçamento'),
+        h('button', {className: 'btn btn-primary', onClick: () => window.print()}, 'Imprimir / Salvar PDF')),
+      h('section', {className: 'report-page'},
+        h('header', {className: 'report-header'},
+          h('p', {className: 'report-eyebrow'}, 'Relatório interno · orçamento aprovado'),
+          h('h1', null, 'Orçamento #' + quote.seq),
+          h('h2', null, quoteName(quote)),
+          h('p', null, 'Aprovado em ' + new Date(quote.decision.at).toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo'}) +
+            ' · Emitido em ' + issuedAt.toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo'}))),
+        h('dl', {className: 'report-facts'},
+          info('Itens', items.length),
+          info('Estados de destino', [...new Set(items.map(item => item.sale.uf))].join(', ')),
+          info('Valor total com IPI', currency(total.valorNota)),
+          info('Receita dos produtos', currency(total.receitaBruta))),
+        !allReady && h('p', {className: 'report-warning'}, 'Há itens com pendências. Consulte a conferência em cada item.'),
+        h('h2', null, 'Resultado consolidado da venda'),
+        h('div', {className: 'report-kpis'},
+          info('Resultado líquido estimado', currency(total.lucroLiq)),
+          info('Margem líquida', total.receitaBruta > 0 ? percent(total.lucroLiq / total.receitaBruta) : '—'),
+          info('Margem bruta', total.receitaBruta > 0 ? percent(total.lucroBruto / total.receitaBruta) : '—'),
+          info('Carga tributária e provisões', total.receitaBruta > 0
+            ? percent(items.reduce((sum, item) => sum + item.calc.kpi.tributos, 0) / total.receitaBruta) : '—')),
+        h('table', {className: 'report-table'},
+          h('thead', null, h('tr', null, ['Item', 'Destino', 'Quantidade', 'Preço unitário', 'Total com IPI', 'Resultado líquido'].map(label => h('th', {key: label, scope: 'col'}, label)))),
+          h('tbody', null, items.map(({product, sale, calc}, i) => h('tr', {key: product.id},
+            h('th', {scope: 'row'}, (i + 1) + ' · ' + product.nome),
+            h('td', null, 'SP → ' + sale.uf),
+            h('td', null, window.intFmt(sale.qtd)),
+            h('td', null, currency(calc.precoUn, 4)),
+            h('td', null, currency(calc.dre.valorNota)),
+            h('td', null, currency(calc.dre.lucroLiq)))))),
+        dreTable(summaryRows, total.receitaBruta),
+        footer()),
+      details);
+  }
+
+  function QuotePanel({quotes, currentId, active, shared, filter, onFilter, onOpen, onNewQuote, onNewItem, onDelete, onDecision, onReport}) {
     const h = React.createElement;
     const count = quotes.filter(quote => quote.seq).length;
     const status = shared.syncError ? 'Sincronização indisponível'
@@ -6586,6 +6785,11 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
                   h('span', {className: 'quote-item-number'}, index + 1),
                   h('span', null, item.nome?.trim() || 'Item ' + (index + 1)))))),
             filter === 'open' && h('button', {className: 'btn quote-add-item', onClick: onNewItem}, '+ Novo item'),
+            quote.decision?.status === 'approved' && h('button', {
+              className: 'btn btn-primary quote-add-item',
+              disabled: !!shared.pending[quote.id] || shared.conflicts.has(quote.id),
+              onClick: () => onReport(quote)
+            }, shared.pending[quote.id] ? 'Salvando orçamento…' : 'Relatório para impressão'),
             filter === 'rejected' && quote.decision.reason && h('p', {className: 'quote-reason'}, 'Motivo: ' + quote.decision.reason),
             (quote.seq || shared.pending[quote.id]) && h(QuoteDecisionActions, {
               key: quote.id, quote, onDecision
@@ -6665,11 +6869,15 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
     const [toast, setToast] = useState(null);
     const [loading, setLoading] = useState(null);
     const [confirmation, setConfirmation] = useState(null);
+    const [report, setReport] = useState(null);
     const shared = useSharedQuotes(userId);
     const quotes = shared.quotes.filter(quote => quoteBucket(quote, today) === filter);
     if (!quotes.length && filter === 'open') quotes.push(draft);
     const currentQuote = quotes.find(quote => quote.id === selection.id) || quotes[0] || draft;
     const editingQuote = quotes.length > 0;
+    const openReport = quote => {
+      setReport(JSON.parse(JSON.stringify(quote)));
+    };
     const changeFilter = value => {
       setFilter(value);
       setSelection({id: '', item: 0});
@@ -6961,9 +7169,9 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
       taxReady: taxReady
     }))))), h(QuotePanel, {
       quotes, currentId: currentQuote.id, active, shared, filter,
-      onFilter: changeFilter, onDecision: changeDecision,
+      onFilter: changeFilter, onDecision: changeDecision, onReport: openReport,
       onOpen: openQuote, onNewQuote: startQuote, onNewItem: addItem, onDelete: deleteQuote
-    }))));
+    }))), report && h(QuoteReport, {quote: report, onClose: () => setReport(null)}));
   }
   ReactDOM.createRoot(document.getElementById('root')).render(/*#__PURE__*/React.createElement(App, null));
 })();</script></body></html>
