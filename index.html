@@ -1631,6 +1631,52 @@ input[type="checkbox"] {accent-color: #1759ac;}
   .report-facts dd {font-size: 10pt;}
   .report-kpis dd {font-size: 12pt;}
 }
+.rtc-overlay {position:fixed; inset:0; z-index:9200; overflow:auto; background:#edf4fc; color:#143454; padding:24px; font-size:16px;}
+.rtc-shell {max-width:1120px; margin:auto;}
+.rtc-header {display:flex; align-items:flex-start; justify-content:space-between; gap:20px; margin-bottom:24px;}
+.rtc-header h1 {font-size:28px; line-height:1.2; margin:8px 0; color:#112f50;}
+.rtc-header p {margin:0;}
+.rtc-eyebrow {font-size:12px; letter-spacing:.1em; color:#3c638d; font-weight:700;}
+.rtc-overlay h2 {font-size:20px; margin:0 0 8px;}
+.rtc-overlay p {line-height:1.5;}
+.rtc-status {border:1px solid #dba946; border-left:4px solid #bd8420; border-radius:12px; padding:20px; background:#fff9e9; margin-bottom:20px; color:#61430b;}
+.rtc-status p {margin:8px 0 0;}
+.rtc-card {background:#fff; border:1px solid #cbdcf0; border-radius:16px; padding:24px; margin-bottom:18px; box-shadow:0 4px 16px #163e6706;}
+.rtc-actions {display:flex; align-items:center; justify-content:space-between; gap:24px;}
+.rtc-actions p {margin:0; max-width:680px;}
+.rtc-overlay .btn {font-size:14px; min-height:40px; text-align:center; text-decoration:none; white-space:normal; flex-shrink:0;}
+.rtc-caption {font-size:14px; color:#496683; line-height:1.5;}
+.rtc-source-links {display:flex; flex-wrap:wrap; gap:12px 24px; font-size:14px;}
+.rtc-source-links a {color:#1556a3; text-decoration:underline;}
+.rtc-section-heading {display:flex; align-items:center; justify-content:space-between; gap:16px; margin:28px 0 16px;}
+.rtc-section-heading h2 {margin:0;}
+.rtc-item {padding:0;}
+.rtc-item > summary {padding:20px 24px; cursor:pointer; color:#143454; font-size:17px;}
+.rtc-item > summary span {float:right; font-size:14px; color:#496683; margin-left:12px;}
+.rtc-item-body {padding:0 24px 24px; border-top:1px solid #e0e9f4;}
+.rtc-grid {display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px; margin:20px 0;}
+.rtc-field {display:flex; flex-direction:column; gap:8px; margin-bottom:16px; min-width:0;}
+.rtc-grid .rtc-field {margin:0;}
+.rtc-field > span {font-size:14px; font-weight:500; color:#365a7b;}
+.rtc-overlay input,.rtc-overlay select,.rtc-overlay textarea {width:100%; box-sizing:border-box; min-height:44px; background:#f6f9fe; color:#143454; border:1px solid #b8d0ec; border-radius:8px; padding:10px 12px; font-size:16px; font-family:inherit;}
+.rtc-overlay input:focus,.rtc-overlay select:focus,.rtc-overlay textarea:focus {outline:2px solid #286bc5; outline-offset:2px;}
+.rtc-integration {border-top:1px solid #dce7f4; padding-top:16px; font-size:14px; line-height:1.5;}
+.rtc-integration summary {cursor:pointer; color:#1556a3;}
+.rtc-integration li {margin:4px 0;}
+.rtc-footer {font-size:14px; color:#496683; padding:0 8px 24px;}
+@media(max-width:760px) {
+ .rtc-overlay {padding:16px;}
+ .rtc-header,.rtc-actions,.rtc-section-heading {flex-direction:column; align-items:stretch;}
+ .rtc-header h1 {font-size:24px;}
+ .rtc-grid {grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px;}
+ .rtc-card {padding:18px;}
+ .rtc-item {padding:0;}
+ .rtc-item > summary {padding:18px;}
+ .rtc-item-body {padding:0 18px 18px;}
+}
+@media(max-width:480px) {.rtc-grid {grid-template-columns:minmax(0,1fr);} .rtc-item > summary span {float:none;display:block;margin:8px 0 0;}}
+@media print {.rtc-overlay {display:none !important;}}
+
 </style></head><body><div id="root"></div><script>/**
  * @license React
  * react.production.min.js
@@ -5473,6 +5519,7 @@ window.sb = (() => {
     onSave,
     savingHint,
     onExport,
+    onNewTaxRule,
     costReady = true,
     taxReady = true
   }) {
@@ -5835,7 +5882,12 @@ window.sb = (() => {
       className: "btn btn-primary",
       style: {width: '100%', justifyContent: 'center', marginTop: 8},
       onClick: onExport
-    }, "Imprimir relatório / Salvar PDF"), /*#__PURE__*/React.createElement("p", {
+    }, "Imprimir relatório / Salvar PDF"),
+    onNewTaxRule && React.createElement("button", {
+      type: "button", className: "btn",
+      style: {width: '100%', justifyContent: 'center', marginTop: 8},
+      onClick: onNewTaxRule
+    }, "Orçamento Nova Regra Tributária"), /*#__PURE__*/React.createElement("p", {
       className: "module-note"
     }, "Margens sobre a receita dos produtos, sem IPI. Lucro l\xEDquido ap\xF3s provis\xF5es gerenciais de IRPJ/CSLL."))));
   }
@@ -6723,6 +6775,159 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
       details);
   }
 
+  // Official reference reviewed on 2026-11-24: ReceitaFederal/calculadora-rtc-regime-regular,
+  // docs/exemplos.md blob 6764dac984aa230fa520a675e807d085172acc07.
+  // This prepares INPUT only. It deliberately does not reproduce the official tax engine.
+  const RTC_OFFICIAL = 'https://consumo.tributos.gov.br/servico/calcular-tributos-consumo/calculadora/regime-geral';
+  const RTC_SOURCE = 'https://github.com/ReceitaFederal/calculadora-rtc-regime-regular';
+  const RTC_UF_CODES = {RO:'11',AC:'12',AM:'13',RR:'14',PA:'15',AP:'16',TO:'17',MA:'21',PI:'22',CE:'23',RN:'24',PB:'25',PE:'26',AL:'27',SE:'28',BA:'29',MG:'31',ES:'32',RJ:'33',SP:'35',PR:'41',SC:'42',RS:'43',MS:'50',MT:'51',GO:'52',DF:'53'};
+  function rtcNumber(value) {
+    const text = String(value ?? '').trim();
+    return /^(?:\d+)(?:[.,]\d+)?$/.test(text) ? Number(text.replace(',', '.')) : NaN;
+  }
+  function rtcItemData(quote, raw) {
+    const sale = {...window.VENDA_PADRAO(), ...quote.sales?.[raw.id]};
+    const prep = quote.rtcPreparation || {};
+    return {
+      date: prep.date || '2027-01-01', time: '',
+      uf: sale.uf,
+      ncm: sale.fiscal?.ncm || '',
+      municipality: '', cst: '', classification: '', base: '',
+      cbs: '', ibsState: '', ibsCity: '', rateSource: '', notes: '',
+      ...prep.items?.[raw.id]
+    };
+  }
+  function rtcInputIssues(data, raw) {
+    const issues = [];
+    const date = new Date(data.date + 'T12:00:00Z');
+    if (!/^2027-\d{2}-\d{2}$/.test(data.date) || Number.isNaN(date.getTime()) || date.toISOString().slice(0,10) !== data.date) issues.push('Informe uma data válida de 2027.');
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(data.time)) issues.push('Informe o horário previsto da operação, no horário de Brasília.');
+    if (!/^\d{8}$/.test(data.ncm)) issues.push('NCM do produto vendido: 8 dígitos.');
+    if (!/^\d{7}$/.test(data.municipality) || !RTC_UF_CODES[data.uf] || data.municipality.slice(0,2) !== RTC_UF_CODES[data.uf]) issues.push('Município: código IBGE de 7 dígitos compatível com a UF.');
+    if (!/^\d{3}$/.test(data.cst)) issues.push('CST IBS/CBS: 3 dígitos.');
+    if (!/^\d{6}$/.test(data.classification) || data.classification.slice(0,3) !== data.cst) issues.push('cClassTrib: 6 dígitos compatíveis com o CST.');
+    if (!(rtcNumber(data.base) > 0 && rtcNumber(data.base) <= 1e12)) issues.push('Informe a base de cálculo CBS/IBS conferida pelo fiscal.');
+    for (const [key, label] of [['cbs','CBS'],['ibsState','IBS estadual'],['ibsCity','IBS municipal']]) {
+      const n = rtcNumber(data[key]);
+      if (!(n >= 0 && n <= 100)) issues.push('Informe a alíquota nominal de ' + label + ' entre 0 e 100%.');
+    }
+    if (!String(data.rateSource).trim()) issues.push('Registre a fonte e a vigência das alíquotas usadas na simulação.');
+    if (!(Number.isInteger(raw.setup?.qty) && raw.setup.qty > 0)) issues.push('Revise a quantidade do item na Produção.');
+    return issues;
+  }
+  function rtcOfficialInput(quote, raw, index) {
+    const data = rtcItemData(quote, raw);
+    const issues = rtcInputIssues(data, raw);
+    if (issues.length) throw new Error(issues.join(' '));
+    return {
+      versao: '1.0.0', dhFatoGerador: data.date + 'T' + data.time + ':00-03:00',
+      municipio: Number(data.municipality), uf: data.uf,
+      itens: [{numero: index + 1, ncm: data.ncm, cst: data.cst, cClassTrib: data.classification,
+        baseCalculo: rtcNumber(data.base), quantidade: raw.setup.qty, unidade: 'UN',
+        aliquotasNominais: {cbs: rtcNumber(data.cbs), ibsEstadual: rtcNumber(data.ibsState), ibsMunicipal: rtcNumber(data.ibsCity)}}]
+    };
+  }
+  function RtcPreparation({quote, onPatch, onClose, syncLabel}) {
+    const h = React.createElement;
+    const root = React.useRef(null);
+    const [message, setMessage] = useState('');
+    useEffect(() => {
+      const previous = document.activeElement;
+      root.current?.querySelector('button')?.focus();
+      const onKey = event => {
+        if (event.key === 'Escape') {event.preventDefault(); onClose();}
+        if (event.key === 'Tab') {
+          const nodes = [...root.current.querySelectorAll('button:not(:disabled), a[href], input, select, textarea, summary')].filter(node => node.getClientRects().length);
+          const first = nodes[0], last = nodes[nodes.length - 1];
+          if (event.shiftKey && document.activeElement === first) {event.preventDefault(); last?.focus();}
+          else if (!event.shiftKey && document.activeElement === last) {event.preventDefault(); first?.focus();}
+        }
+      };
+      document.addEventListener('keydown', onKey);
+      const before = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {document.removeEventListener('keydown', onKey); document.body.style.overflow = before; previous?.focus();};
+    }, []);
+    const patchItem = (id, patch) => {
+      setMessage('');
+      onPatch(latest => ({rtcPreparation: {
+        ...latest.rtcPreparation, schema: 1, regime: 'regular', companyRegime: 'lucro-real',
+        items: {...latest.rtcPreparation?.items, [id]: {...latest.rtcPreparation?.items?.[id], ...patch}}
+      }}));
+    };
+    const field = (raw, data, key, label, props = {}) => h('label', {className: 'rtc-field', key},
+      h('span', null, label), h('input', {type: 'text', ...props, value: data[key],
+        onChange: event => patchItem(raw.id, {[key]: event.target.value})}));
+    const download = (raw, index) => {
+      try {
+        const json = rtcOfficialInput(quote, raw, index);
+        const url = URL.createObjectURL(new Blob([JSON.stringify(json, null, 2)], {type: 'application/json'}));
+        const link = document.createElement('a');
+        link.href = url; link.download = 'rtc-2027-orcamento-' + (quote.seq || 'rascunho') + '-item-' + (index + 1) + '.json';
+        document.body.appendChild(link); link.click(); link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        setMessage('Arquivo de entrada baixado. Os tributos ainda precisam ser calculados pelo motor oficial.');
+      } catch (error) {setMessage(error.message);}
+    };
+    return h('div', {className: 'rtc-overlay', ref: root, role: 'dialog', 'aria-modal': true, 'aria-labelledby': 'rtc-title'},
+      h('div', {className: 'rtc-shell'},
+        h('header', {className: 'rtc-header'}, h('div', null,
+          h('span', {className: 'rtc-eyebrow'}, 'AGENFLEX · PREPARAÇÃO PARA 2027'),
+          h('h1', {id: 'rtc-title'}, 'Orçamento Nova Regra Tributária'),
+          h('p', null, quoteName(quote) + ' · ' + quote.items.length + (quote.items.length === 1 ? ' item' : ' itens'))),
+          h('button', {type: 'button', className: 'btn', onClick: onClose}, 'Voltar ao orçamento')),
+        h('section', {className: 'rtc-status', 'aria-label': 'Status da integração'},
+          h('strong', null, 'Preparação fiscal · cálculo oficial ainda não integrado'),
+          h('p', null, 'A Receita exige alíquotas informadas para 2027 e classifica esses cálculos como simulação. Esta tela organiza os dados; ainda não calcula CBS, IBS, Imposto Seletivo ou a DRE de 2027.'),
+          h('p', null, 'Os valores e as margens do orçamento atual continuam sendo do modelo de 2026.')),
+        h('section', {className: 'rtc-card'},
+          h('div', {className: 'rtc-actions'}, h('div', null,
+            h('h2', null, 'Calculadora oficial · Regime Regular'),
+            h('p', null, 'Opção para a Agenflex, no Lucro Real. O fiscal deve conferir a operação, a classificação e a vigência das alíquotas.')),
+            h('a', {className: 'btn btn-primary', href: RTC_OFFICIAL, target: '_blank', rel: 'noopener noreferrer'}, 'Abrir calculadora da Receita')),
+          h('p', {className: 'rtc-caption'}, 'Abre em outra aba. Os dados deste orçamento não são enviados automaticamente à Receita.'),
+          h('div', {className: 'rtc-source-links'},
+            h('a', {href: RTC_SOURCE, target: '_blank', rel: 'noopener noreferrer'}, 'Código oficial e documentação'),
+            h('a', {href: RTC_SOURCE + '/blob/main/docs/exemplos.md', target: '_blank', rel: 'noopener noreferrer'}, 'Requisitos e limitações de 2027'))),
+        h('div', {className: 'rtc-section-heading'}, h('h2', null, 'Dados por item para conferência'),
+          h('span', {className: 'rtc-caption', role: 'status'}, syncLabel)),
+        quote.items.map((raw, index) => {
+          const data = rtcItemData(quote, raw);
+          const sale = {...window.VENDA_PADRAO(), valor: 0, ...quote.sales?.[raw.id]};
+          const issues = rtcInputIssues(data, raw);
+          return h('details', {className: 'rtc-card rtc-item', key: raw.id, open: true},
+            h('summary', null, h('strong', null, (index + 1) + ' · ' + raw.nome), h('span', null, 'SP → ' + data.uf)),
+            h('div', {className: 'rtc-item-body'},
+              h('p', {className: 'rtc-caption'}, window.intFmt(raw.setup.qty) + ' unidades · Valor atual da venda: ' + window.brl(sale.valor) + ' · Referência do orçamento atual, sem conversão tributária.'),
+              h('div', {className: 'rtc-grid'},
+                field(raw, data, 'date', 'Data prevista da operação', {type:'date', min:'2027-01-01', max:'2027-12-31'}),
+                field(raw, data, 'time', 'Horário previsto · Brasília', {type:'time'}),
+                h('label', {className: 'rtc-field'}, h('span', null, 'UF da operação / destino fiscal'),
+                  h('select', {value: data.uf, onChange: e => patchItem(raw.id, {uf:e.target.value, municipality:''})},
+                    Object.keys(RTC_UF_CODES).sort().map(uf => h('option', {key:uf, value:uf}, uf)))),
+                field(raw, data, 'municipality', 'Município da operação · código IBGE', {inputMode:'numeric', maxLength:7, placeholder:'7 dígitos'}),
+                field(raw, data, 'ncm', 'NCM do produto vendido', {inputMode:'numeric', maxLength:8, placeholder:'8 dígitos'}),
+                field(raw, data, 'cst', 'CST IBS/CBS', {inputMode:'numeric', maxLength:3, placeholder:'Confirmar com o fiscal'}),
+                field(raw, data, 'classification', 'Classificação tributária · cClassTrib', {inputMode:'numeric', maxLength:6, placeholder:'6 dígitos'}),
+                field(raw, data, 'base', 'Base de cálculo CBS/IBS (R$)', {inputMode:'decimal', placeholder:'Base conferida pelo fiscal'}),
+                field(raw, data, 'cbs', 'Alíquota nominal CBS (%) · cenário', {inputMode:'decimal', placeholder:'Sem alíquota presumida'}),
+                field(raw, data, 'ibsState', 'Alíquota nominal IBS estadual (%)', {inputMode:'decimal', placeholder:'Confirmar vigência'}),
+                field(raw, data, 'ibsCity', 'Alíquota nominal IBS municipal (%)', {inputMode:'decimal', placeholder:'Confirmar vigência'})),
+              h('p', {className: 'rtc-caption'}, 'Não use o total da venda como base automaticamente. A composição da base e os tributos que continuam na transição devem ser conferidos para esta operação. A NCM, sozinha, não define a tributação.'),
+              field(raw, data, 'rateSource', 'Fonte, vigência e responsável pelas alíquotas', {maxLength:500, placeholder:'Norma ou cenário utilizado · data · responsável'}),
+              h('label', {className:'rtc-field'}, h('span', null, 'Observações do fiscal'), h('textarea', {value:data.notes, rows:3, maxLength:3000,
+                placeholder:'Registre benefícios, IPI, IS ou outras particularidades da operação.', onChange:e=>patchItem(raw.id,{notes:e.target.value})})),
+              h('details', {className:'rtc-integration'}, h('summary', null, 'Dados para integração com o motor oficial'),
+                h('p', null, 'Exporta somente a entrada CBS/IBS deste item no formato documentado pela Receita. A validação tributária e o cálculo pertencem ao motor oficial. Operações com Imposto Seletivo, regimes específicos ou outros grupos adicionais exigem complementar a integração.'),
+                issues.length > 0 && h('ul', null, issues.map(issue=>h('li',{key:issue},issue))),
+                h('button', {type:'button', className:'btn', disabled:issues.length>0, onClick:()=>download(raw,index)}, 'Baixar entrada CBS/IBS · JSON'))));
+        }),
+        h('footer', {className:'rtc-footer'},
+          h('p', null, 'Dados salvos junto ao orçamento, com a mesma sincronização e o mesmo controle de conflitos do app. Consulte o status de salvamento antes de sair.'),
+          h('p', null, 'Para calcular automaticamente dentro do app, falta conectar uma instalação do motor oficial da Receita. Não há resultado tributário oficial calculado nesta tela.'),
+          message && h('p', {role:'status'}, message))));
+  }
+
   function QuotePanel({quotes, currentId, active, shared, filter, onFilter, onOpen, onNewQuote, onNewItem, onDelete, onDecision}) {
     const h = React.createElement;
     const count = quotes.filter(quote => quote.seq).length;
@@ -6872,6 +7077,7 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
     const [loading, setLoading] = useState(null);
     const [confirmation, setConfirmation] = useState(null);
     const [report, setReport] = useState(null);
+    const [rtcOpen, setRtcOpen] = useState(false);
     const shared = useSharedQuotes(userId);
     const quotes = shared.quotes.filter(quote => quoteBucket(quote, today) === filter);
     if (!quotes.length && filter === 'open') quotes.push(draft);
@@ -7168,13 +7374,17 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
       },
       calc: result,
       onExport: () => openReport(currentQuote),
+      onNewTaxRule: () => setRtcOpen(true),
       costReady: validMP && validProduction,
       taxReady: taxReady
     }))))), h(QuotePanel, {
       quotes, currentId: currentQuote.id, active, shared, filter,
       onFilter: changeFilter, onDecision: changeDecision,
       onOpen: openQuote, onNewQuote: startQuote, onNewItem: addItem, onDelete: deleteQuote
-    }))), report && h(QuoteReport, {quote: report, onClose: () => setReport(null)}));
+    }))), report && h(QuoteReport, {quote: report, onClose: () => setReport(null)}),
+      rtcOpen && h(RtcPreparation, {key:currentQuote.id, quote:currentQuote, onPatch:updateQuote,
+        syncLabel: shared.localError ? 'Falha ao salvar neste aparelho' : shared.conflicts.has(currentQuote.id) ? 'Conflito · volte ao orçamento para revisar' : shared.syncError ? 'Sem sincronização · alterações neste aparelho' : !shared.ready || shared.syncing || Object.keys(shared.pending || {}).length ? 'Sincronizando dados…' : 'Dados sincronizados',
+        onClose:()=>setRtcOpen(false)}));
   }
   ReactDOM.createRoot(document.getElementById('root')).render(/*#__PURE__*/React.createElement(App, null));
 })();</script></body></html>
